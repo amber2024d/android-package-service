@@ -71,6 +71,10 @@ def _client(tmp_path: Path) -> TestClient:
     settings.data_dir = tmp_path / "data"
     settings.temp_dir = tmp_path / "tmp"
     settings.nas_mount_path = tmp_path / "nas"
+    settings.provider_apkpure_signed_enabled = False
+    settings.provider_google_play_enabled = False
     settings.provider_aptoide_enabled = False
+    settings.provider_apkpure_proto_enabled = False
+    settings.provider_apkpure_web_enabled = False
     settings.ensure_directories()
     return TestClient(app)

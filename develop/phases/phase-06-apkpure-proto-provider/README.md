@@ -61,6 +61,19 @@ org.fdroid.fdroid
 - 指定历史 `versionName` 能得到下载计划。
 - 无法解析的包不影响其他 provider fallback。
 
+## 实现记录
+
+- 已新增 `app/providers/apkpure_proto.py` 和 `tests/providers/test_apkpure_proto.py`。
+- `ProviderFactory` 已按 `PROVIDER_APKPURE_PROTO_ENABLED` 注册 `apkpure-proto`。
+- 请求 `app_version` 时带 APKPure 客户端请求头，并保留原始 bytes 做 lossy decode + 正则解析。
+- 支持默认选择版本列表第一个版本；支持按 `versionName` 精确匹配；`versionCode` 返回 `UNSUPPORTED`。
+- `APKJ`、`XAPKJ`、`APKS/APKSJ` 分别映射为 `BASE_APK`、`XAPK`、`APKS`。
+- 单测命令：
+
+```sh
+uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
+```
+
 ## 本阶段不做
 
 - 不可靠支持 `versionCode`。

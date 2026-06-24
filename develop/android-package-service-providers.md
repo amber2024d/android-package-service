@@ -58,13 +58,15 @@ class ProviderFactory:
 
 默认优先级：
 
-| Provider | 默认优先级 | 默认启用 | 说明 |
+| Provider | 默认优先级 | 配置默认启用 | 说明 |
 | --- | ---: | --- | --- |
-| `apkpure-signed` | 100 | 是 | APKPure signed JSON API |
-| `google-play` | 90 | 是 | Aurora dispenser + Python gpapi |
-| `aptoide` | 80 | 是 | Aptoide V7 API |
-| `apkpure-proto` | 70 | 是 | APKPure protobuf API |
-| `apkpure-web` | 20 | 是 | APKPure 网页 + Playwright 兜底 |
+| `apkpure-signed` | 100 | 否 | APKPure signed JSON API |
+| `google-play` | 90 | 否 | Aurora dispenser + Python gpapi |
+| `aptoide` | 80 | 否 | Aptoide V7 API |
+| `apkpure-proto` | 70 | 否 | APKPure protobuf API |
+| `apkpure-web` | 20 | 否 | APKPure 网页 + Playwright 兜底 |
+
+真实 provider 默认关闭，避免本地开发和单测意外访问外网上游；部署或 smoke 时按需打开。
 
 ## GooglePlayProvider
 
@@ -266,7 +268,7 @@ GET https://api.pureapk.com/m/v3/cms/app_version?hl=en-US&package_name={packageN
 - 按 `versionName` 找到对应下载 URL。
 - 解析 `APKJ` 为 `BASE_APK`，`XAPKJ` 为 `XAPK`。
 - 如果正则捕获到 APKS 形态，映射为 `APKS`，不要保存成 APK。
-- 如果缺少应用名，可用 Play Store 网页标题兜底，失败则使用包名。
+- 如果缺少应用名，第一版直接使用包名；暂不额外抓 Play Store 标题。
 
 版本能力：
 
@@ -357,7 +359,14 @@ providers:
 ```text
 PROVIDER_GOOGLE_PLAY_ENABLED=true
 PROVIDER_APTOIDE_ENABLED=true
+PROVIDER_APKPURE_SIGNED_ENABLED=true
+PROVIDER_APKPURE_PROTO_ENABLED=true
 PROVIDER_APKPURE_WEB_ENABLED=true
+PROVIDER_APKPURE_SIGNED_PRIORITY=100
+PROVIDER_GOOGLE_PLAY_PRIORITY=90
+PROVIDER_APTOIDE_PRIORITY=80
+PROVIDER_APKPURE_PROTO_PRIORITY=70
+PROVIDER_APKPURE_WEB_PRIORITY=20
 HTTP_PROXY=
 HTTPS_PROXY=
 ALL_PROXY=

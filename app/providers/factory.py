@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.core.config import Settings
 from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
 from app.domain.models import AndroidPackageInfo, AndroidPackageRequest, DownloadPlan
+from app.providers.apkpure_proto import APKPureProtoProvider
 from app.providers.apkpure_signed import APKPureSignedProvider
 from app.providers.aptoide import AptoideProvider
 from app.providers.base import AndroidPackageProvider
@@ -30,6 +31,13 @@ class ProviderFactory:
                     priority=settings.provider_aptoide_priority,
                     timeout_seconds=settings.http_timeout_seconds,
                     user_agent=settings.http_user_agent,
+                )
+            )
+        if settings.provider_apkpure_proto_enabled:
+            providers.append(
+                APKPureProtoProvider(
+                    priority=settings.provider_apkpure_proto_priority,
+                    timeout_seconds=settings.http_timeout_seconds,
                 )
             )
         self.providers = {provider.id: provider for provider in providers if provider.enabled}
