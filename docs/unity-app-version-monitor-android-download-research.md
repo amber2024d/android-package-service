@@ -1,5 +1,9 @@
 # UnityAppVersionMonitor Android 包获取/下载调研
 
+## 目录说明
+
+调研时的目录：/Users/chenshuai/VSCodeProjects/AuroraStore
+
 ## 摘要
 
 调研对象：

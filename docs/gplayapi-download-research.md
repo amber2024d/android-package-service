@@ -1,5 +1,9 @@
 # GPlayAPI 下载调研
 
+## 目录说明
+
+调研时的目录：/Users/chenshuai/VSCodeProjects/AuroraStore
+
 ## 摘要
 
 Aurora Store 的应用下载来源是 Google Play。它不托管 APK，也没有使用 Google 官方 SDK。

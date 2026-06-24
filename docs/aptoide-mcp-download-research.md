@@ -1,5 +1,9 @@
 # Aptoide MCP 下载调研
 
+## 目录说明
+
+调研时的目录：/Users/chenshuai/VSCodeProjects/AuroraStore
+
 ## 摘要
 
 `aptoide-mcp` 当前是一个很薄的 MCP 服务，只暴露 Aptoide 应用查询和搜索能力。

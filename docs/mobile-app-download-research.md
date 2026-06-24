@@ -1,5 +1,9 @@
 # mobile-app-download Android 实现调研
 
+## 目录说明
+
+调研时的目录：/Users/chenshuai/VSCodeProjects/AuroraStore
+
 ## 摘要
 
 `mobile-app-download` 是当前工作区里的独立 Skill/CLI：
