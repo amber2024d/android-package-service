@@ -301,6 +301,7 @@ https://apkpure.com/{slug}/{packageName}/download
 
 - 参考 `UnityAppVersionMonitor` 的 Playwright 兜底逻辑。
 - Docker 镜像中安装 Playwright Chromium。
+- 公共下载层保留 HTTP 客户端优先；APKPure CDN 拦截时，用 `wget` 携带浏览器请求头和详情下载页 `Referer` 轻量兜底。
 
 必做能力：
 
@@ -337,6 +338,7 @@ https://apkpure.com/{slug}/{packageName}/download
 - 已用 Playwright 获取搜索页、详情页和下载页 HTML；解析逻辑拆为纯函数并用 fixture 单测覆盖。
 - 下载页找不到 CDN 且有 `versionCode` 时，按页面类型构造 `d.apkpure.com/b/{APK|XAPK|APKS}/{packageName}?versionCode=...`；页面类型缺失时用 HEAD 探测候选。
 - 文件类型按页面字段、URL、`Content-Disposition` 判断，输出 `BASE_APK`、`XAPK` 或 `APKS`。
+- 下载计划会附带浏览器请求头和下载页 `Referer`，公共下载层在普通 HTTP 下载失败时改用 `wget`。
 - 不做复杂反爬绕过，不通过浏览器实际下载文件。
 
 ## 配置

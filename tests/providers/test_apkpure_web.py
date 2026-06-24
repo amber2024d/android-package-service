@@ -87,6 +87,8 @@ def test_latest_download_plan_success_without_browser():
     assert plan.version_code == 1023052
     assert plan.files[0].type == PackageFileType.BASE_APK
     assert plan.files[0].url == "https://data.winudf.com/APK/fdroid.apk"
+    assert plan.files[0].headers["Referer"] == "https://apkpure.com/f-droid/org.fdroid.fdroid/download"
+    assert plan.files[0].metadata["download.fallback"] == "wget"
 
 
 def test_constructed_download_url_when_download_page_has_no_cdn():

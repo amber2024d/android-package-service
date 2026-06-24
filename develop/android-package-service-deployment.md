@@ -66,7 +66,7 @@ services:
         reservations:
           memory: 512M
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -96,9 +96,13 @@ volumes:
 建议使用 Playwright 官方 Python 镜像，减少浏览器依赖维护：
 
 ```dockerfile
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.60.0-noble
 
 WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends wget \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
 COPY app ./app
@@ -120,6 +124,7 @@ CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.
 说明：
 
 - Playwright 镜像已经带 Chromium 和系统依赖。
+- 镜像额外安装 `wget`，APKPure Web 下载被 HTTP 客户端拦截时用浏览器头和 Referer 走轻量兜底。
 - `--timeout 2700` 对大 APK/XAPK 下载更宽松。
 - worker 数不宜过高，避免同一服务器同时拉太多大包。
 - `.dockerignore` 使用白名单，只把 `app/`、`pyproject.toml` 等构建必需文件放入 context，避免 `.env`、`.venv`、`data/`、`tmp/`、`artifacts/` 被打包。

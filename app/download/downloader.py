@@ -3,6 +3,7 @@ import ipaddress
 import logging
 import shutil
 import socket
+import subprocess
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlparse
@@ -81,6 +82,14 @@ class PackageDownloader:
                 if part.exists():
                     part.unlink()
                 errors.append(str(exc))
+                if package_file.metadata.get("download.fallback") == "wget":
+                    try:
+                        self._download_url_with_wget(url, part, package_file.headers)
+                        return
+                    except Exception as wget_exc:
+                        if part.exists():
+                            part.unlink()
+                        errors.append(str(wget_exc))
         self._fail(provider, "; ".join(errors) or f"Download failed for {package_file.name}")
 
     async def _download_url(self, url: str, part: Path, headers: dict[str, str] | None = None) -> None:
@@ -101,6 +110,31 @@ class PackageDownloader:
                         if total > self.settings.download_max_file_bytes:
                             raise ValueError("Downloaded file exceeds configured limit.")
                         file.write(chunk)
+
+    def _download_url_with_wget(self, url: str, part: Path, headers: dict[str, str]) -> None:
+        self._validate_url(url)
+        if not shutil.which("wget"):
+            raise RuntimeError("wget is not available.")
+        command = [
+            "wget",
+            "--no-check-certificate",
+            "--connect-timeout=60",
+            "--read-timeout=120",
+            "--tries=3",
+            "-O",
+            str(part),
+        ]
+        for key, value in headers.items():
+            if key.lower() == "user-agent":
+                command.append(f"--user-agent={value}")
+            elif key.lower() == "referer":
+                command.append(f"--referer={value}")
+            else:
+                command.append(f"--header={key}: {value}")
+        command.append(url)
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if part.stat().st_size > self.settings.download_max_file_bytes:
+            raise ValueError("Downloaded file exceeds configured limit.")
 
     def _finalize(self, plan: DownloadPlan, fetched: dict[str, Path]) -> Path:
         if len(plan.files) == 1 and plan.files[0].type == PackageFileType.BASE_APK:

@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -70,10 +71,9 @@ class Settings(BaseSettings):
         self._ensure_artifacts_writable()
 
     def _ensure_artifacts_writable(self) -> None:
-        probe = self.artifacts_dir / ".write-test"
         try:
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink()
+            with NamedTemporaryFile("w", encoding="utf-8", dir=self.artifacts_dir, prefix=".write-test-") as probe:
+                probe.write("ok")
         except OSError as exc:
             raise RuntimeError(f"NAS artifact directory is not writable: {self.artifacts_dir}") from exc
 
