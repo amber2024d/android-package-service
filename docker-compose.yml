@@ -1,0 +1,37 @@
+services:
+  android-package-service:
+    build: .
+    container_name: android-package-service
+    restart: unless-stopped
+    ports:
+      - "11010:8080"
+    environment:
+      PORT: 8080
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:11010}
+      DATA_DIR: /app/data
+      TEMP_DIR: /app/tmp
+      NAS_MOUNT_PATH: /mnt/nas/apks
+      DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
+      PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
+      PROVIDER_FAKE_FAILING_ENABLED: ${PROVIDER_FAKE_FAILING_ENABLED:-true}
+      PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
+    volumes:
+      - app_data:/app/data
+      - app_tmp:/app/tmp
+      - nas_apks:/mnt/nas/apks
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  app_data:
+  app_tmp:
+  nas_apks:
+    driver_opts:
+      type: cifs
+      o: "addr=${NAS_HOST},username=${NAS_USER},password=${NAS_PASSWORD},port=${NAS_PORT:-445},file_mode=0777,dir_mode=0777"
+      device: "//${NAS_HOST}/${NAS_SHARE_PATH}"

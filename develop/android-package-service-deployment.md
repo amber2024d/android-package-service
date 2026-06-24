@@ -29,17 +29,17 @@ services:
     container_name: android-package-service
     restart: unless-stopped
     ports:
-      - "8080:8080"
-    env_file:
-      - .env
+      - "11010:8080"
     environment:
-      - PORT=8080
-      - DATA_DIR=/app/data
-      - TEMP_DIR=/app/tmp
-      - NAS_MOUNT_PATH=/mnt/nas/apks
-      - NAS_FILE_URL_PREFIX=${NAS_FILE_URL_PREFIX:-http://localhost:8080/files}
-      - DOWNLOAD_MAX_FILE_BYTES=${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
-      - PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+      PORT: 8080
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:11010}
+      DATA_DIR: /app/data
+      TEMP_DIR: /app/tmp
+      NAS_MOUNT_PATH: /mnt/nas/apks
+      DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
+      PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
+      PROVIDER_FAKE_FAILING_ENABLED: ${PROVIDER_FAKE_FAILING_ENABLED:-true}
+      PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
       - app_data:/app/data
       - app_tmp:/app/tmp
@@ -116,12 +116,11 @@ CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.
 
 ```text
 APP_ENV=production
-PUBLIC_BASE_URL=http://localhost:8080
+PUBLIC_BASE_URL=http://localhost:11010
 PORT=8080
 DATA_DIR=/app/data
 TEMP_DIR=/app/tmp
 NAS_MOUNT_PATH=/mnt/nas/apks
-NAS_FILE_URL_PREFIX=http://localhost:8080/files
 DOWNLOAD_MAX_FILE_BYTES=5368709120
 
 PROVIDER_APKPURE_SIGNED_ENABLED=true
@@ -146,6 +145,20 @@ NAS_USER=your_user
 NAS_PASSWORD=your_password
 NAS_SHARE_PATH=apks
 ```
+
+本地测试 Docker 不使用正式 NAS volume，改用 dev 变体：
+
+```sh
+./scripts/dev-compose-up.sh
+```
+
+等价于：
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+```
+
+`docker-compose.dev.yml` 会把容器内 `/app/data`、`/app/tmp`、`/mnt/nas/apks` 映射到项目根目录的 `./data`、`./tmp`、`./artifacts`。
 
 如果服务器需要代理访问 Google Play 或 APKPure，可以设置：
 

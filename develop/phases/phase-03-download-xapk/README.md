@@ -61,9 +61,9 @@ Android/obb/{packageName}/patch.{versionCode}.{packageName}.obb
 用 fake provider 准备本地小 ZIP/APK 样本：
 
 ```sh
-pytest
-curl -OJ "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid/download?provider=fake"
-curl -OJ "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?provider=fake"
+uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
+curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download?provider=fake"
+curl -OJ "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?provider=fake"
 ```
 
 ## 验收标准
@@ -82,3 +82,8 @@ curl -OJ "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?
 - 不做缓存淘汰。
 - 不解析 APK manifest。
 - 不用关闭 TLS 证书校验的方式解决下载失败。
+
+## 当前状态
+
+- 已完成 ArtifactStore、`.part` 原子落盘、ZIP/size/hash 校验、单 APK 返回、单 APKS/XAPK 保留扩展名、多文件 XAPK 打包和进程内同版本锁。
+- 阶段 3 的 fake 主路径已由测试覆盖；真实 URL 下载已实现 SSRF 基础拦截，真实 provider 接入留到后续阶段。

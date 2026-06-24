@@ -50,7 +50,7 @@ respx
 4. 实现基础结构化日志，先包含时间、级别、消息，request 字段留到后续阶段补齐。
 5. 实现 `app/main.py` 和 `GET /health`，返回 `{"status": "ok"}`。
 6. Dockerfile 优先使用 Playwright Python 镜像，设置 protobuf pure-python 环境变量。
-7. docker-compose 挂载 `app_data`、`app_tmp`、`nas_apks`，暴露 `8080`。
+7. docker-compose 挂载 `app_data`、`app_tmp`、`nas_apks`，宿主机 `11010` 映射到容器 `8080`。
 8. `.env.example` 只放示例值，不写真实 NAS 或代理凭据。
 9. 确认容器内系统 CA 可用；本地开发文档说明 `SSL_CERT_FILE` 的兜底配置。
 
@@ -59,16 +59,16 @@ respx
 本地检查：
 
 ```sh
-pytest
-uvicorn app.main:app --reload --port 8080
+uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
+uv run --python /opt/homebrew/bin/python3.12 --extra dev uvicorn app.main:app --reload --port 8080
 curl http://localhost:8080/health
 ```
 
-Docker 检查：
+本地 Docker 检查：
 
 ```sh
-docker compose up --build
-curl http://localhost:8080/health
+./scripts/dev-compose-up.sh
+curl http://localhost:11010/health
 ```
 
 ## 验收标准
@@ -85,3 +85,8 @@ curl http://localhost:8080/health
 - 不实现 provider。
 - 不下载任何 APK/XAPK。
 - 不做 NAS 清理、数据库、任务队列。
+
+## 当前状态
+
+- 已完成基础 FastAPI 项目、配置加载、日志、目录初始化、Dockerfile、docker-compose 和 `/health`。
+- 已补充 `docker-compose.dev.yml` 和 `scripts/dev-compose-up.sh`，本地 Docker 映射 `./data`、`./tmp`、`./artifacts`；生产 compose 仍使用 `/mnt/nas/apks`。

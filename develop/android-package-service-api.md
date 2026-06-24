@@ -50,17 +50,17 @@ provider    可选，String，强制指定来源；默认 auto
   "versionName": "1.18.0",
   "versionCode": 43,
   "provider": "aptoide",
-  "downloadUrl": "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?versionCode=43&provider=aptoide",
+  "downloadUrl": "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?versionCode=43&provider=aptoide",
   "versions": [
     {
       "versionName": "1.18.0",
       "versionCode": 43,
-      "downloadUrl": "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?versionCode=43&provider=aptoide"
+      "downloadUrl": "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?versionCode=43&provider=aptoide"
     },
     {
       "versionName": "1.17.0",
       "versionCode": 41,
-      "downloadUrl": "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?versionCode=41&provider=aptoide"
+      "downloadUrl": "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?versionCode=41&provider=aptoide"
     }
   ]
 }

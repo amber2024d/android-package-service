@@ -49,7 +49,7 @@
 
 ```text
 docker compose up --build
-curl http://localhost:8080/health
+curl http://localhost:11010/health
 ```
 
 ## 阶段 2：领域模型、接口和 Provider 工厂
@@ -295,7 +295,6 @@ curl http://localhost:8080/health
   NAS_PASSWORD
   NAS_SHARE_PATH
   NAS_MOUNT_PATH
-  NAS_FILE_URL_PREFIX
   ```
 
 - 增加配置示例和 README。

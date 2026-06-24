@@ -1,0 +1,74 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    app_env: str = "development"
+    public_base_url: str = "http://localhost:8080"
+    port: int = 8080
+    data_dir: Path = Path("./data")
+    temp_dir: Path = Path("./tmp")
+    nas_mount_path: Path = Path("./artifacts")
+    download_max_file_bytes: int = 5 * 1024 * 1024 * 1024
+
+    provider_fake_enabled: bool = True
+    provider_fake_failing_enabled: bool = True
+    provider_apkpure_signed_enabled: bool = False
+    provider_google_play_enabled: bool = False
+    provider_aptoide_enabled: bool = False
+    provider_apkpure_proto_enabled: bool = False
+    provider_apkpure_web_enabled: bool = False
+
+    provider_apkpure_signed_priority: int = 100
+    provider_google_play_priority: int = 90
+    provider_aptoide_priority: int = 80
+    provider_apkpure_proto_priority: int = 70
+    provider_apkpure_web_priority: int = 20
+
+    http_timeout_seconds: float = 120.0
+    http_user_agent: str = Field(default="AndroidPackageService/0.1.0")
+
+    @property
+    def cache_dir(self) -> Path:
+        return self.data_dir / "cache"
+
+    @property
+    def logs_dir(self) -> Path:
+        return self.data_dir / "logs"
+
+    @property
+    def metadata_dir(self) -> Path:
+        return self.data_dir / "metadata"
+
+    @property
+    def downloads_dir(self) -> Path:
+        return self.temp_dir / "downloads"
+
+    @property
+    def xapk_build_dir(self) -> Path:
+        return self.temp_dir / "xapk-build"
+
+    @property
+    def artifacts_dir(self) -> Path:
+        return self.nas_mount_path / "artifacts"
+
+    def ensure_directories(self) -> None:
+        for path in (
+            self.cache_dir,
+            self.logs_dir,
+            self.metadata_dir,
+            self.downloads_dir,
+            self.xapk_build_dir,
+            self.artifacts_dir,
+        ):
+            path.mkdir(parents=True, exist_ok=True)
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

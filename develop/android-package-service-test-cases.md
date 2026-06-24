@@ -219,7 +219,7 @@
 
 ```sh
 docker compose up -d
-curl http://localhost:8080/health
+curl http://localhost:11010/health
 ```
 
 预期：容器健康检查通过。
@@ -227,7 +227,7 @@ curl http://localhost:8080/health
 ### S002 查询小 APK
 
 ```sh
-curl "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid"
+curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid"
 ```
 
 预期：返回包信息和本服务 `downloadUrl`。
@@ -235,7 +235,7 @@ curl "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid"
 ### S003 下载小 APK
 
 ```sh
-curl -OJ "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid/download"
+curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 ```
 
 预期：返回 `.apk`，文件以 `PK` 开头。
@@ -243,7 +243,7 @@ curl -OJ "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid/download"
 ### S004 下载 split XAPK
 
 ```sh
-curl -OJ "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?provider=aptoide"
+curl -OJ "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?provider=aptoide"
 ```
 
 预期：返回 `.xapk`，zip 内包含 manifest 和 split。
@@ -251,7 +251,7 @@ curl -OJ "http://localhost:8080/api/v1/android/apps/com.oakever.arrows/download?
 ### S005 下载 APKPure XAPK
 
 ```sh
-curl -OJ "http://localhost:8080/api/v1/android/apps/com.abi.busjam.sortpuzzle/download?provider=apkpure-signed"
+curl -OJ "http://localhost:11010/api/v1/android/apps/com.abi.busjam.sortpuzzle/download?provider=apkpure-signed"
 ```
 
 预期：返回 `.xapk`，sha1/size 校验通过。
@@ -273,7 +273,7 @@ curl -OJ "http://localhost:8080/api/v1/android/apps/com.abi.busjam.sortpuzzle/do
 ```sh
 pytest
 docker compose up -d
-curl http://localhost:8080/health
+curl http://localhost:11010/health
 ```
 
 涉及真实下载能力时，再运行：

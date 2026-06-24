@@ -77,9 +77,9 @@ ProviderError
 最小测试：
 
 ```sh
-pytest
-curl "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid?provider=fake"
-curl "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid/files?provider=fake"
+uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
+curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid?provider=fake"
+curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/files?provider=fake"
 ```
 
 ## 验收标准
@@ -95,3 +95,8 @@ curl "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid/files?provider
 - 不接真实 Aptoide/APKPure/Google Play。
 - 不实现真实文件下载。
 - 不设计第二套内部 DTO。
+
+## 当前状态
+
+- 已完成领域模型、Provider 抽象、ProviderFactory fallback、统一错误响应和三个 `/api/v1/android` 接口。
+- 已加入 `fake` 与 `fake-failing` provider，用于验证强制 provider 和 fallback。

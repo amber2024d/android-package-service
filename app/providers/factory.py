@@ -1,0 +1,53 @@
+from collections.abc import Awaitable, Callable
+
+from app.core.config import Settings
+from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
+from app.domain.models import AndroidPackageInfo, AndroidPackageRequest, DownloadPlan
+from app.providers.base import AndroidPackageProvider
+from app.providers.fake import FailingFakeProvider, FakeProvider
+
+
+class ProviderFactory:
+    def __init__(self, settings: Settings):
+        sample_dir = settings.cache_dir / "fake-provider"
+        providers: list[AndroidPackageProvider] = []
+        if settings.provider_fake_failing_enabled:
+            providers.append(FailingFakeProvider(sample_dir=sample_dir, priority=20))
+        if settings.provider_fake_enabled:
+            providers.append(FakeProvider(sample_dir=sample_dir, priority=10))
+        self.providers = {provider.id: provider for provider in providers if provider.enabled}
+
+    def resolve(self, preferred_provider: str | None) -> list[AndroidPackageProvider]:
+        if preferred_provider and preferred_provider != "auto":
+            provider = self.providers.get(preferred_provider)
+            if not provider:
+                raise AggregateProviderError(
+                    [
+                        ProviderError(
+                            provider=preferred_provider,
+                            error=ErrorCode.UNSUPPORTED,
+                            message="Provider is not enabled.",
+                        )
+                    ]
+                )
+            return [provider]
+        return sorted(self.providers.values(), key=lambda provider: provider.priority, reverse=True)
+
+    async def get_package_info(self, request: AndroidPackageRequest) -> AndroidPackageInfo:
+        return await self._first_success(request, lambda provider: provider.get_package_info(request))
+
+    async def get_download_plan(self, request: AndroidPackageRequest) -> DownloadPlan:
+        return await self._first_success(request, lambda provider: provider.get_download_plan(request))
+
+    async def _first_success(
+        self,
+        request: AndroidPackageRequest,
+        call: Callable[[AndroidPackageProvider], Awaitable[AndroidPackageInfo | DownloadPlan]],
+    ) -> AndroidPackageInfo | DownloadPlan:
+        errors: list[ProviderError] = []
+        for provider in self.resolve(request.preferred_provider):
+            try:
+                return await call(provider)
+            except ProviderException as exc:
+                errors.append(exc.provider_error)
+        raise AggregateProviderError(errors)

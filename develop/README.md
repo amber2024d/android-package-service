@@ -14,3 +14,5 @@
 8. [阶段详细计划](phases/README.md)
 9. [全覆盖测试用例](android-package-service-test-cases.md)
 10. [Git 提交规范](git-commit-guidelines.md)
+
+源码落地后的快速入口见根目录 [PROJECT_MAP.md](../PROJECT_MAP.md)。

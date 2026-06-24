@@ -53,9 +53,9 @@ GET /api/v1/android/apps/{APKPure XAPK 测试包}/download
 
 ```sh
 docker compose up -d
-curl http://localhost:8080/health
-curl "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid"
-curl -OJ "http://localhost:8080/api/v1/android/apps/org.fdroid.fdroid/download"
+curl http://localhost:11010/health
+curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid"
+curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 ```
 
 通过条件：

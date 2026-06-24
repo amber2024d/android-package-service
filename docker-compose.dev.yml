@@ -1,0 +1,18 @@
+services:
+  android-package-service:
+    environment:
+      APP_ENV: development
+      PUBLIC_BASE_URL: http://localhost:11010
+      PROVIDER_FAKE_ENABLED: "true"
+      PROVIDER_FAKE_FAILING_ENABLED: "true"
+    volumes:
+      - ./data:/app/data
+      - ./tmp:/app/tmp
+      - ./artifacts:/mnt/nas/apks
+
+volumes:
+  app_data:
+  app_tmp:
+  nas_apks:
+    driver: local
+    driver_opts: {}
