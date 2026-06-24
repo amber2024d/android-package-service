@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.core.config import Settings
 from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
 from app.domain.models import AndroidPackageInfo, AndroidPackageRequest, DownloadPlan
+from app.providers.aptoide import AptoideProvider
 from app.providers.base import AndroidPackageProvider
 from app.providers.fake import FailingFakeProvider, FakeProvider
 
@@ -15,6 +16,14 @@ class ProviderFactory:
             providers.append(FailingFakeProvider(sample_dir=sample_dir, priority=20))
         if settings.provider_fake_enabled:
             providers.append(FakeProvider(sample_dir=sample_dir, priority=10))
+        if settings.provider_aptoide_enabled:
+            providers.append(
+                AptoideProvider(
+                    priority=settings.provider_aptoide_priority,
+                    timeout_seconds=settings.http_timeout_seconds,
+                    user_agent=settings.http_user_agent,
+                )
+            )
         self.providers = {provider.id: provider for provider in providers if provider.enabled}
 
     def resolve(self, preferred_provider: str | None) -> list[AndroidPackageProvider]:

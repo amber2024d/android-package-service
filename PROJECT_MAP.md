@@ -5,7 +5,7 @@
 - 应用入口：`app/main.py`
 - API 路由：`app/api/routes.py`
 - 配置：`app/core/config.py`
-- 测试：`tests/test_app.py`
+- 测试：`tests/test_app.py`、`tests/providers/*.py`
 
 ## 模块边界
 

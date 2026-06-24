@@ -71,6 +71,16 @@ com.oakever.arrows
 - `versionName=1.17.0` 或 `versionCode=41` 能二次查询旧版本。
 - 下载接口能用 Aptoide artifact 返回 APK/XAPK。
 
+## 实现记录
+
+- 已新增 `app/providers/aptoide.py` 和 `tests/providers/test_aptoide.py`。
+- `ProviderFactory` 已按 `PROVIDER_APTOIDE_ENABLED` 注册 `aptoide`。
+- 单测命令：
+
+```sh
+uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
+```
+
 ## 本阶段不做
 
 - 不基于 `malware.rank` 做硬拦截，只记录可用信息。

@@ -71,5 +71,6 @@ def _client(tmp_path: Path) -> TestClient:
     settings.data_dir = tmp_path / "data"
     settings.temp_dir = tmp_path / "tmp"
     settings.nas_mount_path = tmp_path / "nas"
+    settings.provider_aptoide_enabled = False
     settings.ensure_directories()
     return TestClient(app)
