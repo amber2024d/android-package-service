@@ -63,6 +63,18 @@ org.fdroid.fdroid
 - 下载层能校验 sha1 并返回最终 `.apk` 或 `.xapk`。
 - signed provider 失败不影响 Aptoide fallback。
 
+## 实现记录
+
+- 已新增 `app/providers/apkpure_signed.py` 和 `tests/providers/test_apkpure_signed.py`。
+- `ProviderFactory` 已按 `PROVIDER_APKPURE_SIGNED_ENABLED` 注册 `apkpure-signed`。
+- `asset.type=APK/XAPK/APKS` 分别映射为 `BASE_APK`、`XAPK`、`APKS`，保留 `size` 和 `sha1` 给下载层校验。
+- 只支持最新版；指定版本不匹配时返回 `UNSUPPORTED`。
+- 单测命令：
+
+```sh
+uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
+```
+
 ## 本阶段不做
 
 - 不支持历史版本。

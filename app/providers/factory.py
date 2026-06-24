@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable
 from app.core.config import Settings
 from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
 from app.domain.models import AndroidPackageInfo, AndroidPackageRequest, DownloadPlan
+from app.providers.apkpure_signed import APKPureSignedProvider
 from app.providers.aptoide import AptoideProvider
 from app.providers.base import AndroidPackageProvider
 from app.providers.fake import FailingFakeProvider, FakeProvider
@@ -16,6 +17,13 @@ class ProviderFactory:
             providers.append(FailingFakeProvider(sample_dir=sample_dir, priority=20))
         if settings.provider_fake_enabled:
             providers.append(FakeProvider(sample_dir=sample_dir, priority=10))
+        if settings.provider_apkpure_signed_enabled:
+            providers.append(
+                APKPureSignedProvider(
+                    priority=settings.provider_apkpure_signed_priority,
+                    timeout_seconds=settings.http_timeout_seconds,
+                )
+            )
         if settings.provider_aptoide_enabled:
             providers.append(
                 AptoideProvider(
