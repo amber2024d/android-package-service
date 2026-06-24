@@ -112,6 +112,8 @@ delivery
 - 不能只写 `result["file"]`。现代 Google Play 包可能包含 split APK、OBB、patch。
 - Provider 应输出 `DownloadPlan`，由公共下载层下载和打包 XAPK。
 - Python `gpapi.download()` 可能返回下载流数据而不是可复用 URL；阶段 7 需要先用适配器把 `file`、`splits`、`additionalData` 统一成公共下载层可消费的文件源。
+- Google Play 返回的短期下载 URL 和 Cookie 不放公开 `url` / `metadata`，只通过内部 `source_url`、`headers` 给下载层使用。
+- Google Play protobuf 返回的 `sha1`、`sha256` 是 base64url 编码，Provider 需要转换为十六进制后交给公共校验层。
 - Google Play 没有可靠接口枚举单个应用完整历史版本。历史版本只支持“调用方已知 versionCode 后尝试下载”。
 
 版本能力：
@@ -134,7 +136,7 @@ Token 缓存：
 - Aurora dispenser 不可用。
 - Google Play 协议变化。
 - 匿名账号被限制。
-- `gpapi` 对 split/OBB 的返回结构需要实测确认。
+- `gpapi` 原生 `delivery()` 不完整暴露 split，需要 Provider patch delivery 响应解析。
 
 这些风险不应阻断服务整体，失败后 fallback 到 Aptoide/APKPure。
 

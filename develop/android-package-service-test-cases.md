@@ -19,7 +19,7 @@
 | 小 APK | `org.fdroid.fdroid` | Aptoide / APKPure |
 | Aptoide split | `com.oakever.arrows` | Aptoide |
 | APKPure XAPK | `com.abi.busjam.sortpuzzle` | APKPure signed |
-| Google Play split | 待实现时确认 | Google Play |
+| Google Play split | `com.google.android.calculator` | Google Play |
 
 真实 smoke 包会变化；如果某包失效，只更新本表和 smoke 脚本，不改测试意图。
 
@@ -197,11 +197,17 @@
 
 - mock：`file`、`splits`、`additionalData`
 - 预期：标准化为 `BASE_APK`、`SPLIT_APK`、`OBB_MAIN`、`OBB_PATCH`
+- 预期：Google Play 短期 URL、Cookie、本地 data cache 路径只存在于内部字段，不出现在公开 `/files` 响应
 
 ### T214 Google Play token 缓存
 
 - 条件：token 未过期、过期、刷新失败
 - 预期：未过期复用；过期刷新；失败返回 `AUTH_ERROR` 并允许 auto fallback
+
+### T214a Google Play hash 归一化
+
+- mock：gpapi 返回 base64url `sha1`、`sha256`
+- 预期：Provider 输出十六进制 hash，下载层可完成校验
 
 ### T215 APKPure web 解析
 
@@ -281,4 +287,3 @@ curl http://localhost:11010/health
 ```sh
 scripts/smoke.sh
 ```
-

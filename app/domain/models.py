@@ -54,6 +54,9 @@ class PackageFile(ApiModel):
     name: str
     source_type: str = "url"
     url: str | None = None
+    source_url: str | None = Field(default=None, exclude=True)
+    source_path: str | None = Field(default=None, exclude=True)
+    headers: dict[str, str] = Field(default_factory=dict, exclude=True)
     fallback_urls: list[str] = Field(default_factory=list)
     size: int | None = None
     md5: str | None = None

@@ -57,18 +57,19 @@ class PackageDownloader:
 
     async def _fetch_one(self, package_file: PackageFile, part: Path, provider: str) -> None:
         if package_file.source_type == "local":
-            if not provider.startswith("fake"):
-                self._fail(provider, "Local file sources are only allowed for fake providers.")
-            source = Path(urlparse(package_file.url or "").path)
+            if not provider.startswith("fake") and package_file.metadata.get("local.provider") != provider:
+                self._fail(provider, "Local file source is not trusted.")
+            source = Path(package_file.source_path or urlparse(package_file.url or "").path)
             shutil.copy2(source, part)
             return
-        if package_file.source_type != "url" or not package_file.url:
+        if package_file.source_type != "url" or not (package_file.source_url or package_file.url):
             self._fail(provider, f"Unsupported file source: {package_file.source_type}")
 
         errors: list[str] = []
-        for url in [package_file.url, *package_file.fallback_urls]:
+        urls = [package_file.source_url or package_file.url, *package_file.fallback_urls]
+        for url in urls:
             try:
-                await self._download_url(url, part)
+                await self._download_url(url, part, package_file.headers)
                 return
             except Exception as exc:
                 if part.exists():
@@ -76,13 +77,14 @@ class PackageDownloader:
                 errors.append(str(exc))
         self._fail(provider, "; ".join(errors) or f"Download failed for {package_file.name}")
 
-    async def _download_url(self, url: str, part: Path) -> None:
+    async def _download_url(self, url: str, part: Path, headers: dict[str, str] | None = None) -> None:
         self._validate_url(url)
         total = 0
+        request_headers = {"User-Agent": self.settings.http_user_agent, **(headers or {})}
         async with httpx.AsyncClient(
             follow_redirects=True,
             timeout=httpx.Timeout(120.0, connect=30.0),
-            headers={"User-Agent": self.settings.http_user_agent},
+            headers=request_headers,
         ) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()

@@ -8,6 +8,7 @@ from app.providers.apkpure_signed import APKPureSignedProvider
 from app.providers.aptoide import AptoideProvider
 from app.providers.base import AndroidPackageProvider
 from app.providers.fake import FailingFakeProvider, FakeProvider
+from app.providers.google_play import GooglePlayProvider
 
 
 class ProviderFactory:
@@ -31,6 +32,14 @@ class ProviderFactory:
                     priority=settings.provider_aptoide_priority,
                     timeout_seconds=settings.http_timeout_seconds,
                     user_agent=settings.http_user_agent,
+                )
+            )
+        if settings.provider_google_play_enabled:
+            providers.append(
+                GooglePlayProvider(
+                    priority=settings.provider_google_play_priority,
+                    timeout_seconds=settings.http_timeout_seconds,
+                    cache_dir=settings.cache_dir,
                 )
             )
         if settings.provider_apkpure_proto_enabled:

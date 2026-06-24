@@ -60,6 +60,16 @@ split 包最终返回 XAPK
 - 返回值包含 split 时，最终下载接口返回 XAPK。
 - token 或 Google Play 请求失败时，能 fallback 到 Aptoide/APKPure。
 
+## 当前实现状态
+
+- 已新增 `GooglePlayProvider`，默认仍按 `PROVIDER_GOOGLE_PLAY_ENABLED=false` 关闭。
+- 已接入 Aurora dispenser token 缓存，路径为 `data/cache/aurora_token.json`，TTL 30 分钟。
+- 已在导入 `gpapi` 前设置 `PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python`，并 patch 现代 Google Play headers。
+- 已标准化 `file`、`splits`、`additionalData` 到公共 `DownloadPlan`；短期 URL、Cookie 和本地 data cache 路径只保存在内部 `source_url`、`headers`、`source_path` 字段，不写入 `/files` 或 artifact metadata。
+- 已把 Google Play base64url `sha1` / `sha256` 归一化为下载层校验所需的 hex。
+- 已补 mock 单测覆盖最新版详情、已知 `versionCode` 下载、单 APK、split、OBB、流式 data、本地 token 缓存和 dispenser 鉴权失败。
+- 已真实 smoke：`com.google.android.calculator` 查询最新版成功，下载 base + split 成功，最终生成 XAPK。
+
 ## 本阶段不做
 
 - 不枚举完整历史版本。

@@ -206,6 +206,9 @@ class PackageFile(BaseModel):
     name: str
     source_type: str = "url"
     url: str | None = None
+    source_url: str | None = Field(default=None, exclude=True)
+    source_path: str | None = Field(default=None, exclude=True)
+    headers: dict[str, str] = Field(default_factory=dict, exclude=True)
     fallback_urls: list[str] = Field(default_factory=list)
     size: int | None = None
     md5: str | None = None
@@ -242,6 +245,10 @@ APKS
 `source_type` 默认是 `url`。如果 Google Play `gpapi` 只能给 `data` 流或 URL + cookie，先在
 Google provider 适配成公共下载层支持的内部文件源，仍然走 `FileVerifier` 和 `ArtifactStore`，
 不要让 provider 自己写最终文件。
+
+`source_url`、`source_path`、`headers` 是下载层内部字段，不进入公开 API 或 artifact metadata。
+Google Play 的短期 token URL 和 Cookie 只放在这些内部字段里；`/files` 可返回文件类型、大小和 hash，
+但不暴露上游短期下载凭证。
 
 `download_url` 一律返回本服务代理下载链接，不长期暴露上游 CDN URL。
 

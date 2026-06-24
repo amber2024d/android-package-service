@@ -58,7 +58,7 @@ NAS 挂载不可用时，服务启动应失败。不要静默改写服务器本�
 `PackageDownloader` 输入 `DownloadPlan`：
 
 1. 为当前下载创建临时目录。
-2. 按 `source_type` 获取文件源；第一版必须支持 `url`，Google Play 阶段再补 `gpapi-data` 这类内部源适配。
+2. 按 `source_type` 获取文件源；`url` 源优先使用内部 `source_url`，否则使用公开 `url`。
 3. 每个文件下载后调用 `FileVerifier`。
 4. 主 URL 失败时，按 `fallback_urls` 继续尝试同一文件。
 5. 如果只有一个 `BASE_APK`，生成最终 `.apk`。
@@ -73,6 +73,10 @@ readTimeout: 120s
 callTimeout: 45min
 User-Agent: AndroidPackageService/{version}
 ```
+
+Google Play 这类短期下载凭证使用 `PackageFile.source_url` 和 `PackageFile.headers` 传给下载层，
+字段不序列化到 `/files` 或 artifact metadata；`gpapi` 流式 `data` 先落到 provider cache，
+再通过内部 `source_path` 交给同一下载、校验、打包流程。
 
 可选支持：
 
@@ -90,6 +94,9 @@ User-Agent: AndroidPackageService/{version}
 5. 如果 provider 给了 `sha1`，校验 sha1。
 6. 如果 provider 给了 `sha256`，校验 sha256。
 7. 如果是 XAPK/APKS 且存在 `manifest.json`，校验包名和版本字段中 provider 已给出的部分。
+
+Provider 必须把 hash 归一化为十六进制字符串后交给 `FileVerifier`。例如 Google Play protobuf
+里的 `sha1` / `sha256` 是 base64url 编码，不能原样传入公共校验层。
 
 第一版不强制解析 APK manifest。后续可接入 `apkanalyzer`、`aapt2`、`androguard` 或其他 APK parser，校验：
 
