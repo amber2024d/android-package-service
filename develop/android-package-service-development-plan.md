@@ -294,7 +294,6 @@ curl http://localhost:11010/health
   NAS_USER
   NAS_PASSWORD
   NAS_SHARE_PATH
-  NAS_MOUNT_PATH
   ```
 
 - 增加配置示例和 README。

@@ -25,4 +25,4 @@
 
 - `data/`：轻量状态、provider cache、metadata、日志。
 - `tmp/`：下载 `.part` 和 XAPK 构建临时文件。
-- `NAS_MOUNT_PATH/artifacts/`：最终 APK/XAPK/APKS artifact，按 `{provider}/{packageName}/{version}` 分类。
+- `NAS_MOUNT_PATH/artifacts/`：最终 APK/XAPK/APKS artifact；Docker 内固定为 `/mnt/nas/apks/artifacts`，按 `{provider}/{packageName}/{version}` 分类。
