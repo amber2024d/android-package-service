@@ -103,6 +103,7 @@ android-package-service/
       filenames.py
       zip_utils.py
   tests/
+  .dockerignore
   Dockerfile
   docker-compose.yml
   pyproject.toml

@@ -1,0 +1,9 @@
+**
+
+!app/
+!app/**
+!pyproject.toml
+!.dockerignore
+
+app/**/__pycache__/
+app/**/*.py[cod]

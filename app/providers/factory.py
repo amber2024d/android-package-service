@@ -1,6 +1,8 @@
+import logging
 from collections.abc import Awaitable, Callable
 
 from app.core.config import Settings
+from app.core.logging import log_event
 from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
 from app.domain.models import AndroidPackageInfo, AndroidPackageRequest, DownloadPlan
 from app.providers.apkpure_proto import APKPureProtoProvider
@@ -10,6 +12,8 @@ from app.providers.aptoide import AptoideProvider
 from app.providers.base import AndroidPackageProvider
 from app.providers.fake import FailingFakeProvider, FakeProvider
 from app.providers.google_play import GooglePlayProvider
+
+logger = logging.getLogger(__name__)
 
 
 class ProviderFactory:
@@ -76,21 +80,47 @@ class ProviderFactory:
             return [provider]
         return sorted(self.providers.values(), key=lambda provider: provider.priority, reverse=True)
 
-    async def get_package_info(self, request: AndroidPackageRequest) -> AndroidPackageInfo:
-        return await self._first_success(request, lambda provider: provider.get_package_info(request))
+    async def get_package_info(self, request: AndroidPackageRequest, request_id: str | None = None) -> AndroidPackageInfo:
+        return await self._first_success(request, lambda provider: provider.get_package_info(request), request_id)
 
-    async def get_download_plan(self, request: AndroidPackageRequest) -> DownloadPlan:
-        return await self._first_success(request, lambda provider: provider.get_download_plan(request))
+    async def get_download_plan(self, request: AndroidPackageRequest, request_id: str | None = None) -> DownloadPlan:
+        return await self._first_success(request, lambda provider: provider.get_download_plan(request), request_id)
 
     async def _first_success(
         self,
         request: AndroidPackageRequest,
         call: Callable[[AndroidPackageProvider], Awaitable[AndroidPackageInfo | DownloadPlan]],
+        request_id: str | None,
     ) -> AndroidPackageInfo | DownloadPlan:
         errors: list[ProviderError] = []
-        for provider in self.resolve(request.preferred_provider):
+        try:
+            providers = self.resolve(request.preferred_provider)
+        except AggregateProviderError as exc:
+            self._log_errors(request, exc.provider_errors, request_id)
+            raise
+        for provider in providers:
             try:
                 return await call(provider)
             except ProviderException as exc:
                 errors.append(exc.provider_error)
+                self._log_errors(request, [exc.provider_error], request_id)
         raise AggregateProviderError(errors)
+
+    def _log_errors(
+        self,
+        request: AndroidPackageRequest,
+        errors: list[ProviderError],
+        request_id: str | None,
+    ) -> None:
+        for error in errors:
+            log_event(
+                logger,
+                "provider_failed",
+                request_id=request_id,
+                package_name=request.package_name,
+                version_code=request.version_code,
+                version_name=request.version_name,
+                provider=error.provider,
+                upstream_status=error.error.value,
+                message=error.message,
+            )

@@ -39,6 +39,19 @@ services:
       DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
       PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
       PROVIDER_FAKE_FAILING_ENABLED: ${PROVIDER_FAKE_FAILING_ENABLED:-true}
+      PROVIDER_APKPURE_SIGNED_ENABLED: ${PROVIDER_APKPURE_SIGNED_ENABLED:-false}
+      PROVIDER_GOOGLE_PLAY_ENABLED: ${PROVIDER_GOOGLE_PLAY_ENABLED:-false}
+      PROVIDER_APTOIDE_ENABLED: ${PROVIDER_APTOIDE_ENABLED:-false}
+      PROVIDER_APKPURE_PROTO_ENABLED: ${PROVIDER_APKPURE_PROTO_ENABLED:-false}
+      PROVIDER_APKPURE_WEB_ENABLED: ${PROVIDER_APKPURE_WEB_ENABLED:-false}
+      PROVIDER_APKPURE_SIGNED_PRIORITY: ${PROVIDER_APKPURE_SIGNED_PRIORITY:-100}
+      PROVIDER_GOOGLE_PLAY_PRIORITY: ${PROVIDER_GOOGLE_PLAY_PRIORITY:-90}
+      PROVIDER_APTOIDE_PRIORITY: ${PROVIDER_APTOIDE_PRIORITY:-80}
+      PROVIDER_APKPURE_PROTO_PRIORITY: ${PROVIDER_APKPURE_PROTO_PRIORITY:-70}
+      PROVIDER_APKPURE_WEB_PRIORITY: ${PROVIDER_APKPURE_WEB_PRIORITY:-20}
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      ALL_PROXY: ${ALL_PROXY:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
       - app_data:/app/data
@@ -109,6 +122,7 @@ CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.
 - Playwright 镜像已经带 Chromium 和系统依赖。
 - `--timeout 2700` 对大 APK/XAPK 下载更宽松。
 - worker 数不宜过高，避免同一服务器同时拉太多大包。
+- `.dockerignore` 使用白名单，只把 `app/`、`pyproject.toml` 等构建必需文件放入 context，避免 `.env`、`.venv`、`data/`、`tmp/`、`artifacts/` 被打包。
 
 ## .env 配置
 
@@ -212,6 +226,8 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 
 NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘。这样可以避免大文件悄悄把服务器磁盘打满。
 
+服务启动会在 `/mnt/nas/apks/artifacts` 下写入并删除探针文件；目录不可写时应用进程直接失败。
+
 第一版不做自动清理。后续可加一个简单清理脚本：
 
 ```text
@@ -252,3 +268,21 @@ location / {
 ```
 
 大游戏 XAPK 可能超过数 GB，最终 artifact 应写入 NAS。服务器本地磁盘主要承载临时文件和少量状态，仍需要给 `/app/tmp` 预留并发下载时的空间。
+
+## Smoke
+
+启动后运行：
+
+```sh
+BASE_URL=http://localhost:11010 scripts/smoke.sh
+```
+
+默认 smoke 使用 fake provider，覆盖健康检查、查询、files、单 APK、split XAPK、artifact 复用和 provider fallback 失败样例。
+
+真实 APKPure XAPK 可选：
+
+```sh
+APKPURE_XAPK_PACKAGE=com.abi.busjam.sortpuzzle BASE_URL=http://localhost:11010 scripts/smoke.sh
+```
+
+需要先打开 `PROVIDER_APKPURE_SIGNED_ENABLED=true`，并保证代理或网络可用。

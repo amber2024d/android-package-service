@@ -63,6 +63,11 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 - 直接跑等价命令时如未配置 NAS 变量，Compose 可能输出变量缺失警告；脚本已内置测试默认值。
+- 服务启动后跑 smoke：
+
+```sh
+BASE_URL=http://localhost:11010 scripts/smoke.sh
+```
 
 ## 常用 grep
 

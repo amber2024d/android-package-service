@@ -67,6 +67,15 @@ class Settings(BaseSettings):
             self.artifacts_dir,
         ):
             path.mkdir(parents=True, exist_ok=True)
+        self._ensure_artifacts_writable()
+
+    def _ensure_artifacts_writable(self) -> None:
+        probe = self.artifacts_dir / ".write-test"
+        try:
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except OSError as exc:
+            raise RuntimeError(f"NAS artifact directory is not writable: {self.artifacts_dir}") from exc
 
 
 @lru_cache

@@ -19,7 +19,9 @@
 
 - 正式 Docker：`docker-compose.yml`，使用 NAS/CIFS volume。
 - 本地测试 Docker：`docker-compose.dev.yml`，覆盖为 `./data`、`./tmp`、`./artifacts`。
+- Docker 构建忽略：`.dockerignore`，只把镜像构建需要的源码和项目元数据放进 context。
 - 一键本地测试 Docker：`scripts/dev-compose-up.sh`。
+- 部署 smoke：`scripts/smoke.sh`。
 
 ## 存储
 

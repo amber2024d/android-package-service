@@ -1,5 +1,6 @@
 import asyncio
 import ipaddress
+import logging
 import shutil
 import socket
 from pathlib import Path
@@ -9,12 +10,15 @@ from urllib.parse import urlparse
 import httpx
 
 from app.core.config import Settings
+from app.core.logging import log_event
 from app.domain.errors import ErrorCode, ProviderError, ProviderException
 from app.domain.models import DownloadPlan, PackageFile, PackageFileType
 from app.download.artifact_store import ArtifactStore
 from app.download.verifier import FileVerifier
 from app.download.xapk_builder import XapkBuilder
 from app.utils.filenames import safe_part
+
+logger = logging.getLogger(__name__)
 
 
 class PackageDownloader:
@@ -26,12 +30,13 @@ class PackageDownloader:
         self.store = ArtifactStore(settings.artifacts_dir, self.verifier)
         self.builder = XapkBuilder()
 
-    async def download(self, plan: DownloadPlan) -> Path:
+    async def download(self, plan: DownloadPlan, request_id: str | None = None) -> Path:
         key = (plan.provider, plan.package_name, plan.version_key)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             existing = self.store.existing(plan)
             if existing:
+                self._log_artifact("artifact_reused", plan, existing, request_id)
                 return existing
 
             artifact_dir = self.store.plan_dir(plan)
@@ -40,6 +45,7 @@ class PackageDownloader:
             fetched = await self._fetch_files(plan, files_dir)
             artifact = self._finalize(plan, fetched)
             self.store.write_metadata(plan, artifact)
+            self._log_artifact("artifact_written", plan, artifact, request_id)
             return artifact
 
     async def _fetch_files(self, plan: DownloadPlan, files_dir: Path) -> dict[str, Path]:
@@ -136,3 +142,22 @@ class PackageDownloader:
 
     def _fail(self, provider: str, message: str) -> None:
         raise ProviderException(ProviderError(provider=provider, error=ErrorCode.NETWORK_ERROR, message=message))
+
+    def _log_artifact(
+        self,
+        event: str,
+        plan: DownloadPlan,
+        artifact: Path,
+        request_id: str | None,
+    ) -> None:
+        log_event(
+            logger,
+            event,
+            request_id=request_id,
+            package_name=plan.package_name,
+            version_code=plan.version_code,
+            version_name=plan.version_name,
+            provider=plan.provider,
+            upstream_status="reused" if event == "artifact_reused" else "ok",
+            artifact_path=str(artifact),
+        )

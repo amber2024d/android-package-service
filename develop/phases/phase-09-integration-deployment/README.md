@@ -71,3 +71,11 @@ curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 - 不新增业务能力。
 - 不引入 Kubernetes、数据库、队列。
 - 不做 artifact 自动清理，除非 NAS 容量已经成为真实问题。
+
+## 当前实现状态
+
+- 已补齐根 `README.md`、`.env.example`、`.dockerignore`、Dockerfile、Compose volume、NAS/CIFS 配置、健康检查和 restart 策略。
+- 服务启动会创建并探测 `NAS_MOUNT_PATH/artifacts` 可写，不可写直接失败。
+- 请求、provider fallback、下载完成和 artifact 复用日志包含 `request_id`、包名、版本、provider、`upstream_status` 和 `artifact_path`。
+- 已新增 `scripts/smoke.sh`，默认用 fake provider 覆盖健康检查、查询、files、单 APK、split XAPK、artifact 复用和 provider fallback 失败样例。
+- APKPure XAPK smoke 作为可选项：设置 `APKPURE_XAPK_PACKAGE` 并打开对应 provider 后运行。

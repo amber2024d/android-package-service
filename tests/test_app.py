@@ -1,4 +1,5 @@
 import json
+import logging
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -37,6 +38,18 @@ def test_download_single_apk(tmp_path):
     assert response.content[:2] == b"PK"
 
 
+def test_download_reuses_existing_artifact(tmp_path, caplog):
+    client = _client(tmp_path)
+    client.get("/api/v1/android/apps/org.fdroid.fdroid/download?provider=fake")
+
+    caplog.clear()
+    with caplog.at_level(logging.INFO):
+        response = client.get("/api/v1/android/apps/org.fdroid.fdroid/download?provider=fake")
+
+    assert response.status_code == 200
+    assert '"event": "artifact_reused"' in caplog.text
+
+
 def test_download_split_xapk(tmp_path):
     client = _client(tmp_path)
     response = client.get("/api/v1/android/apps/com.oakever.arrows/download?provider=fake")
@@ -63,6 +76,26 @@ def test_hash_mismatch_returns_verify_failed(tmp_path):
     response = client.get("/api/v1/android/apps/org.fake.bad-hash/download?provider=fake")
     assert response.status_code == 502
     assert response.json()["error"] == "VERIFY_FAILED"
+
+
+def test_artifact_dir_must_be_writable(tmp_path):
+    get_settings.cache_clear()
+    settings = get_settings()
+    settings.data_dir = tmp_path / "data"
+    settings.temp_dir = tmp_path / "tmp"
+    settings.nas_mount_path = tmp_path / "nas"
+    settings.artifacts_dir.mkdir(parents=True)
+    (settings.artifacts_dir / ".write-test").mkdir()
+
+    try:
+        try:
+            settings.ensure_directories()
+        except RuntimeError as exc:
+            assert "NAS artifact directory is not writable" in str(exc)
+        else:
+            raise AssertionError("ensure_directories should fail when artifact probe is not writable")
+    finally:
+        get_settings.cache_clear()
 
 
 def _client(tmp_path: Path) -> TestClient:
