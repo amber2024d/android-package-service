@@ -217,7 +217,7 @@
 ### T216 APKPure web 构造 URL 兜底
 
 - 条件：下载页无 CDN URL，但有 `versionCode`
-- 预期：生成 APK/XAPK/APKS 候选 URL，并按文件类型输出计划
+- 预期：页面文件类型明确时构造对应 URL；类型缺失时探测 APK/XAPK/APKS 候选，并按文件类型输出计划
 
 ## API 与部署 smoke
 

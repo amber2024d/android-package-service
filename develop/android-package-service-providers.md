@@ -331,6 +331,14 @@ https://apkpure.com/{slug}/{packageName}/download
 - 依赖页面结构。
 - 依赖 Chromium 运行环境。
 
+当前实现：
+
+- 已接入 `ProviderFactory`，默认关闭且最低优先级。
+- 已用 Playwright 获取搜索页、详情页和下载页 HTML；解析逻辑拆为纯函数并用 fixture 单测覆盖。
+- 下载页找不到 CDN 且有 `versionCode` 时，按页面类型构造 `d.apkpure.com/b/{APK|XAPK|APKS}/{packageName}?versionCode=...`；页面类型缺失时用 HEAD 探测候选。
+- 文件类型按页面字段、URL、`Content-Disposition` 判断，输出 `BASE_APK`、`XAPK` 或 `APKS`。
+- 不做复杂反爬绕过，不通过浏览器实际下载文件。
+
 ## 配置
 
 示例：

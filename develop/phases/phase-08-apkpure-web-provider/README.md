@@ -32,7 +32,7 @@ Playwright Chromium
 3. 从搜索结果中找到包名精确匹配的详情页。
 4. 解析详情页应用名、版本名、版本号、文件类型。
 5. 打开下载页，查找实际 CDN URL。
-6. 如果页面未给 URL 且有 `versionCode`，尝试构造 APK/XAPK/APKS 下载 URL。
+6. 如果页面未给 URL 且有 `versionCode`，按页面文件类型构造下载 URL；类型缺失时再探测 APK/XAPK/APKS 候选。
 7. 输出 `BASE_APK` 或 `XAPK` 下载计划。
 8. 文件类型按页面字段、URL、`Content-Disposition` 优先级判断，区分 APK/XAPK/APKS。
 9. 页面结构变化、浏览器超时、下载页失败都映射为标准 `ProviderError`。
@@ -61,8 +61,19 @@ Mobile API 失败时能通过网页拿到部分包下载链接
 - 页面结构变化时错误可观测，不影响其他 provider。
 - Playwright 相关失败不会拖垮服务进程。
 
+## 当前实现状态
+
+- 已新增 `APKPureWebProvider`，默认仍按 `PROVIDER_APKPURE_WEB_ENABLED=false` 关闭，优先级保持 `20`。
+- 已接入 `ProviderFactory`，auto 顺序仍按配置优先级 fallback。
+- 已实现 APKPure 搜索页精确包名匹配、详情页应用名/版本/文件类型解析、下载页 CDN URL 提取。
+- 下载页无 CDN 且有 `versionCode` 时，会按页面文件类型构造 `APK`、`XAPK` 或 `APKS` 下载 URL；页面类型缺失时才用 HEAD 探测三个候选。
+- 文件类型按页面字段、URL、`Content-Disposition` 判断，输出 `BASE_APK`、`XAPK` 或 `APKS`。
+- Playwright 页面加载失败和超时映射为标准 `ProviderError`，不会跳出 provider fallback。
+- 已补纯解析单测覆盖搜索匹配、详情字段、下载页 CDN、构造 URL、APKS 识别和缺字段 `BAD_RESPONSE`。
+
 ## 本阶段不做
 
 - 不把 web provider 提到默认高优先级。
 - 不做复杂反爬绕过。
 - 不把浏览器下载文件作为常规路径，只解析 URL 后交给公共下载层。
+- 不枚举 APKPure 网页历史版本。

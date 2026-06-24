@@ -133,7 +133,7 @@ apkpure-signed -> google-play -> aptoide -> apkpure-proto -> apkpure-web
 - Google Play 更接近官方来源，但依赖 Aurora token 和 gpapi，放在 signed 之后。
 - Aptoide 对历史版本和 split 支持最好，是重要兜底。
 - APKPure signed/proto/web 三条路径互补，全部纳入 Provider。
-- Playwright 网页路径较重，可默认启用但放最低优先级，或通过配置允许关闭。
+- Playwright 网页路径较重，默认关闭；部署或 smoke 按需启用，启用后放最低优先级。
 
 ## 核心流程
 
