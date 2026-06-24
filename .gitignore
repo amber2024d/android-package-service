@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.venv/
+venv/
+
+# Env and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local runtime data
+data/
+tmp/
+logs/
+downloads/
+output/
+artifacts/
+*.part
+
+# Android package artifacts
+*.apk
+*.xapk
+*.apks
+*.obb
+
+# Docker / local tooling
+docker-compose.override.yml
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+
