@@ -343,8 +343,9 @@ GET /api/v1/android/apps/{packageName}/download 正常返回 apk/xapk
 - Google Play 链路最接近官方来源，但依赖 token、gpapi 和 Google 协议，放在公共层稳定之后更容易排错。
 - APKPure web 最重，适合最后作为兜底增强。
 
-## 后续：版本目录 v2 重构（阶段 10+）
+## 版本目录 v2 重构（阶段 10–17，**已落地**）
 
-上面 9 个阶段稳定后，按 [版本目录设计 v2](android-package-service-version-catalog-design.md) 推进重构：把版本枚举从
+在上面 9 个阶段之上，按 [版本目录设计 v2](android-package-service-version-catalog-design.md) 完成了重构：把版本枚举从
 provider 剥离，目录成为唯一枚举层（SQLite 库 + 动态刷新 + 名↔号账本），provider 退化为纯下载器，对外提供
-`/versions`(downloadable) 与 `/download`(先下后台补)。详细可执行阶段（10–15）见 [phases/README](phases/README.md)。
+`/versions`(downloadable) 与 `/download`(先下后台补)；二期补 APKMirror 深历史源、主动归档、AppMagic known 层。
+各阶段（10–17）状态见 [phases/README](phases/README.md)，源码入口见 [PROJECT_MAP.md](../PROJECT_MAP.md)。

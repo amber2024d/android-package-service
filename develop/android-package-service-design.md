@@ -92,13 +92,26 @@ android-package-service/
       apkpure_signed.py
       apkpure_proto.py
       apkpure_web.py
-      apkpure_versions.py   # 共享：APKPure 网页版本目录与抓取工具，apkpure-signed/apkpure-web 复用
+      apkpure_versions.py   # 共享：APKPure 网页抓取工具，apkpure-signed/apkpure-web/采集器复用
+      apkmirror.py          # 纯下载 provider（深历史源，阶段 15）
+      apkmirror_versions.py # 共享：APKMirror 抓取工具（uploads/变体/4 跳）
       google_play.py
     download/
-      downloader.py
+      downloader.py         # + _expand_bundles：.apkm 解包重建 .xapk（阶段 15）
       verifier.py
       artifact_store.py
       xapk_builder.py
+    catalog/                # 版本目录（阶段 10–17）
+      store.py              # SQLite 单库（versions/version_sources/ledger/collection_state/scheduler_lock）
+      ledger.py             # 名↔号账本
+      manifest.py           # 产物 → (name, code)
+      catalog.py            # VersionCatalog：唯一枚举层（ensure_collected/聚合/单飞/known 层）
+      orchestrator.py       # 下载编排器（name↔code 补全/选源/锁归一）
+      scheduler.py          # 后台定时刷新（leader 选主）
+      archiver.py           # 主动归档（发现即抓取）
+      runtime.py            # 按 settings 装配 catalog/collectors
+      collectors/           # 源采集器：apkpure/aptoide/apkmirror/appmagic
+      session/              # AppMagic cookie/会话托管
     utils/
       hashing.py
       filenames.py

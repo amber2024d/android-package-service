@@ -16,9 +16,9 @@
 | 8 | [phase-08-apkpure-web-provider](phase-08-apkpure-web-provider/README.md) | APKPure Web 兜底 |
 | 9 | [phase-09-integration-deployment](phase-09-integration-deployment/README.md) | 配置、部署、smoke 和收尾 |
 
-### 版本目录 v2 重构（阶段 10+）
+### 版本目录 v2 重构（阶段 10–17，**全部已落地**）
 
-从 [版本目录设计 v2](../android-package-service-version-catalog-design.md) 拆出：把版本枚举从 provider 剥离、目录为唯一枚举层（SQLite + 动态刷新 + 账本），provider 退化为纯下载器。
+从 [版本目录设计 v2](../android-package-service-version-catalog-design.md) 拆出：把版本枚举从 provider 剥离、目录为唯一枚举层（SQLite + 动态刷新 + 账本），provider 退化为纯下载器。各阶段 README 末尾有「当前状态」落地记录；源码入口见 [PROJECT_MAP.md](../../PROJECT_MAP.md)。
 
 **一期（核心闭环，确定收益、零封号）**：
 

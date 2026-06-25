@@ -1,6 +1,6 @@
 # Android Package Service
 
-FastAPI 服务，用统一接口查询和下载 Android APK/XAPK/APKS。Provider 负责上游解析，下载层负责落盘、校验、artifact 复用和 XAPK 打包。
+FastAPI 服务，用统一接口查询和下载 Android APK/XAPK/APKS。Provider 负责上游解析，下载层负责落盘、校验、artifact 复用和 XAPK 打包。多源聚合的**版本目录**（`app/catalog/`，阶段 10–17）统一枚举可下载版本、维护名↔号账本、编排下载、后台刷新与归档，详见 [PROJECT_MAP.md](PROJECT_MAP.md) 与[版本目录设计](develop/android-package-service-version-catalog-design.md)。
 
 ## 本地运行
 
@@ -55,7 +55,11 @@ PROVIDER_GOOGLE_PLAY_ENABLED=true
 PROVIDER_APTOIDE_ENABLED=true
 PROVIDER_APKPURE_PROTO_ENABLED=true
 PROVIDER_APKPURE_WEB_ENABLED=true
+PROVIDER_APKMIRROR_ENABLED=false   # 深历史源（二期），按需开
 ```
+
+版本目录的可选能力（默认关，见 `.env.example`）：定时刷新 `CATALOG_REFRESH_ENABLED`、主动归档
+`ARCHIVE_ENABLED`、AppMagic known 监控源 `APPMAGIC_ENABLED`。
 
 大包下载可按网络情况调大：
 
@@ -74,6 +78,7 @@ PROVIDER_GOOGLE_PLAY_PRIORITY=90
 PROVIDER_APTOIDE_PRIORITY=80
 PROVIDER_APKPURE_PROTO_PRIORITY=70
 PROVIDER_APKPURE_WEB_PRIORITY=20
+PROVIDER_APKMIRROR_PRIORITY=15
 ```
 
 访问 Google Play 或 APKPure 需要代理时：
@@ -116,6 +121,7 @@ APKPURE_XAPK_PACKAGE=com.abi.busjam.sortpuzzle BASE_URL=http://localhost:11010 s
 ```sh
 curl http://localhost:11010/health
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid"
+curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/versions"   # 版本目录：可下载版本列表
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/files"
 curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 ```

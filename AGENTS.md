@@ -9,8 +9,8 @@
 - 阶段详细计划：[develop/phases/README.md](develop/phases/README.md)
 - 全覆盖测试用例：[develop/android-package-service-test-cases.md](develop/android-package-service-test-cases.md)
 - Git 提交规范：[develop/git-commit-guidelines.md](develop/git-commit-guidelines.md)
-- 版本目录重构设计草稿（待评审）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
-- APKMirror 源适配器接入设计草稿（待评审）：[develop/android-package-service-apkmirror-adapter-design.md](develop/android-package-service-apkmirror-adapter-design.md)
+- 版本目录重构设计（已落地，阶段 10–17）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
+- APKMirror 源适配器设计（已落地，阶段 15）：[develop/android-package-service-apkmirror-adapter-design.md](develop/android-package-service-apkmirror-adapter-design.md)
 - 调研文档入口：`docs/*.md`（APKMirror 上游调研：[docs/apkmirror-download-research.md](docs/apkmirror-download-research.md)）
 - 项目地图：[PROJECT_MAP.md](PROJECT_MAP.md)
 
@@ -29,7 +29,8 @@
 - `docs/`：Google Play/gpapi、Aptoide、APKPure、APKMirror、现有项目下载链路调研。
 - `PROJECT_MAP.md`：源码入口、模块边界、运行配置和存储路径。
 - `app/`：FastAPI 服务源码；结构参考 [develop/android-package-service-design.md](develop/android-package-service-design.md) 的“项目结构”。
-- `tests/`：阶段主路径测试。
+- `app/catalog/`：版本目录（阶段 10–17）——SQLite 库、名↔号账本、源采集器、`VersionCatalog` 枚举层、下载编排器、定时刷新调度器、主动归档、AppMagic known 层。详见 [PROJECT_MAP.md](PROJECT_MAP.md)。
+- `tests/`：阶段主路径测试；`tests/catalog/` 为版本目录测试。
 
 ## Python 虚拟环境
 
@@ -74,8 +75,9 @@ BASE_URL=http://localhost:11010 scripts/smoke.sh
 ## 常用 grep
 
 ```sh
-rg -n "Provider|DownloadPlan|XAPK|Aptoide|APKPure|Google Play" develop docs
+rg -n "Provider|DownloadPlan|XAPK|Aptoide|APKPure|APKMirror|Google Play" develop docs
 rg -n "versionCode|versionName|packageName" develop docs
+rg -n "VersionCatalog|ensure_collected|downloadable|ledger|collector" app/catalog
 rg -n "TODO|FIXME|ponytail:" .
 rg --files
 ```

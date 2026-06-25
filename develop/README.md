@@ -15,9 +15,9 @@
 9. [全覆盖测试用例](android-package-service-test-cases.md)
 10. [Git 提交规范](git-commit-guidelines.md)
 
-设计草稿（待评审，未落地）：
+版本目录重构（已落地，阶段 10–17）：
 
-- [版本目录（Version Catalog）重构设计草稿](android-package-service-version-catalog-design.md)
-- [APKMirror 源适配器接入设计草稿](android-package-service-apkmirror-adapter-design.md)
+- [版本目录（Version Catalog）重构设计](android-package-service-version-catalog-design.md)——多源聚合的可下载版本目录、名↔号账本、下载编排、对外 `/versions`、定时刷新、主动归档、AppMagic known 层。各 §/阶段就地标注「落地」。
+- [APKMirror 源适配器设计](android-package-service-apkmirror-adapter-design.md)——深历史 downloadable 源（阶段 15）。
 
 源码落地后的快速入口见根目录 [PROJECT_MAP.md](../PROJECT_MAP.md)。
