@@ -15,4 +15,8 @@
 9. [全覆盖测试用例](android-package-service-test-cases.md)
 10. [Git 提交规范](git-commit-guidelines.md)
 
+设计草稿（待评审，未落地）：
+
+- [版本目录（Version Catalog）重构设计草稿](android-package-service-version-catalog-design.md)
+
 源码落地后的快速入口见根目录 [PROJECT_MAP.md](../PROJECT_MAP.md)。

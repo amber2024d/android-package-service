@@ -9,6 +9,7 @@
 - 阶段详细计划：[develop/phases/README.md](develop/phases/README.md)
 - 全覆盖测试用例：[develop/android-package-service-test-cases.md](develop/android-package-service-test-cases.md)
 - Git 提交规范：[develop/git-commit-guidelines.md](develop/git-commit-guidelines.md)
+- 版本目录重构设计草稿（待评审）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
 - 调研文档入口：`docs/*.md`
 - 项目地图：[PROJECT_MAP.md](PROJECT_MAP.md)
 
