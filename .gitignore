@@ -45,3 +45,4 @@ docker-compose.override.yml
 .idea/
 .vscode/
 
+apkpure-skills/
