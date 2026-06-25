@@ -378,6 +378,11 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 
 ## 7. AppMagic 接入：当「版本名时间线」源，不当 code 源
 
+> **落地（阶段 17）**：`collectors/appmagic.py`（`downloadable=False`，POST releases、按 versionName 去重保留
+> `[首末]` 日期、无 code）+ `session/appmagic_session.py`（cf_clearance + dashly_auth_token 外部注入、缺则降级、
+> 401/403 置失效）。入 known 层（`versions.downloadable=0`、MAX 合并不下调可下载源的 1）、**不进对外 `/versions`**、
+> 不进归档；缺口对账 `VersionCatalog.list_known_only`。默认关。Playwright 自动刷新 cookie 与日期对齐二级键留待后续。
+
 > **v2 重定位**：决策① 下对外 `/versions` 只出 downloadable，而 AppMagic 是 known-only（无源可下、无 code）。
 > 因此 AppMagic **不进对外接口**，降为**内部监控/归档触发的可选源（二期）**；本节分析仍是其接入方式的依据。
 

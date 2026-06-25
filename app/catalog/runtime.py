@@ -7,8 +7,10 @@ from app.catalog.archiver import CatalogArchiver
 from app.catalog.catalog import VersionCatalog
 from app.catalog.collectors.apkmirror import APKMirrorCollector
 from app.catalog.collectors.apkpure import APKPureCollector
+from app.catalog.collectors.appmagic import AppMagicCollector
 from app.catalog.collectors.aptoide import AptoideCollector
 from app.catalog.collectors.base import Collector
+from app.catalog.session.appmagic_session import AppMagicSession
 from app.catalog.store import CatalogStore
 from app.core.config import Settings
 
@@ -34,6 +36,17 @@ def build_collectors(settings: Settings) -> list[Collector]:
                 user_agent=settings.http_user_agent,
                 timeout_seconds=settings.http_timeout_seconds,
                 proxy=settings.upstream_proxy,
+            )
+        )
+    if settings.appmagic_enabled:
+        # known-only 监控源：cookie 缺失则 session 不可用、采集器降级返回空（不阻断其它源）。
+        session = AppMagicSession(settings.appmagic_cf_clearance, settings.appmagic_auth_token)
+        collectors.append(
+            AppMagicCollector(
+                session,
+                timeout_seconds=settings.http_timeout_seconds,
+                country=settings.appmagic_country,
+                store=settings.appmagic_store,
             )
         )
     return collectors

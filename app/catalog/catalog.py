@@ -15,15 +15,16 @@ from app.catalog.store import CatalogStore
 
 logger = logging.getLogger(__name__)
 
-# versions：按 (package, version_name) 归并；code/日期取 COALESCE（已有不被 NULL 覆盖），downloadable 取并集（这里都=1）。
+# versions：按 (package, version_name) 归并；code/日期取 COALESCE（已有不被 NULL 覆盖）；
+# downloadable 取并集（MAX）——任一可下载源命中即 1，known-only 源（AppMagic）只贡献 0、不下调已有的 1。
 _VERSIONS_UPSERT = """
 INSERT INTO versions (package, version_name, version_code, first_seen_date, last_seen_date, downloadable)
-VALUES (?, ?, ?, ?, ?, 1)
+VALUES (?, ?, ?, ?, ?, ?)
 ON CONFLICT(package, version_name) DO UPDATE SET
   version_code = COALESCE(excluded.version_code, versions.version_code),
   first_seen_date = COALESCE(versions.first_seen_date, excluded.first_seen_date),
   last_seen_date = COALESCE(excluded.last_seen_date, versions.last_seen_date),
-  downloadable = 1
+  downloadable = MAX(versions.downloadable, excluded.downloadable)
 """
 
 # version_sources：provenance + 各源稳定下载键，按 (package, version_name, source) 覆盖更新。
@@ -99,6 +100,20 @@ class VersionCatalog:
         rows.sort(key=lambda row: version_sort_key(row[0]), reverse=True)
         return [(name, code) for name, code in rows]
 
+    def list_known_only(self, package: str) -> list[tuple[str, str | None, str | None]]:
+        """缺口对账（内部，§17 步骤 4）：`downloadable=0` 的 known-only 版本 `(name, first_date, last_date)`，按版本号降序。
+
+        「知道发布过、但当前无源可下」的清单——供监控告警 / 主动归档优先级，**不对外**。
+        """
+        with closing(self.store.connect()) as conn:
+            rows = conn.execute(
+                "SELECT version_name, first_seen_date, last_seen_date FROM versions "
+                "WHERE package = ? AND downloadable = 0",
+                (package,),
+            ).fetchall()
+        rows.sort(key=lambda row: version_sort_key(row[0]), reverse=True)
+        return [(name, first, last) for name, first, last in rows]
+
     # ---- 决策：要不要收集 ----------------------------------------------------- #
 
     def _needs_collection(self, package: str, need_history: bool, force: bool = False) -> bool:
@@ -161,6 +176,7 @@ class VersionCatalog:
     def _persist(self, package: str, gathered: dict[str, list[VersionRecord]], full: bool) -> list[tuple[str, int | None]]:
         """落库（upsert versions/version_sources + 刷 state）。返回本轮**新出现**的 downloadable 版本 (name, code)。"""
         now_iso = self._now().isoformat()
+        downloadable_flags = {collector.source: collector.downloadable for collector in self.collectors}
         with closing(self.store.connect()) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
@@ -169,11 +185,20 @@ class VersionCatalog:
                 }
                 cursors: dict[str, int] = {}
                 collected: dict[str, int | None] = {}
+                downloadable_names: set[str] = set()
                 for source, records in gathered.items():
+                    source_downloadable = 1 if downloadable_flags.get(source, True) else 0
                     for record in records:
                         conn.execute(
                             _VERSIONS_UPSERT,
-                            (package, record.version_name, record.version_code, record.release_date, record.release_date),
+                            (
+                                package,
+                                record.version_name,
+                                record.version_code,
+                                record.release_date,
+                                record.last_release_date or record.release_date,
+                                source_downloadable,
+                            ),
                         )
                         conn.execute(
                             _SOURCES_UPSERT,
@@ -187,6 +212,8 @@ class VersionCatalog:
                         )
                         if record.version_code is not None:
                             cursors[source] = max(cursors.get(source, record.version_code), record.version_code)
+                        if source_downloadable:
+                            downloadable_names.add(record.version_name)
                         # 同名多源：保留带 code 的那个，供归档/补全用
                         if record.version_name not in collected or (
                             collected[record.version_name] is None and record.version_code is not None
@@ -197,7 +224,12 @@ class VersionCatalog:
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
-        return [(name, code) for name, code in collected.items() if name not in existing]
+        # 归档事件只含本轮新出现且**可下载**的版本——known-only（AppMagic）无源可下，不归档（§17）。
+        return [
+            (name, code)
+            for name, code in collected.items()
+            if name not in existing and name in downloadable_names
+        ]
 
     def _update_state(self, conn: Connection, package: str, full: bool, cursors: dict[str, int], now_iso: str) -> None:
         row = conn.execute(

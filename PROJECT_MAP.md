@@ -34,6 +34,9 @@
   `scheduler_lock` 选主（多 worker 只一个跑、租约超时重抢），每 5h 对已跟踪包逐包强制增量、单包失败隔离。
 - `app/catalog/archiver.py`（阶段 16）：`CatalogArchiver`——catalog 增量发现新版本时（`on_new_versions` 钩子）经编排器
   下载入 NAS 档案馆（默认关、限流、有限重试、幂等、失败隔离）；只面向未来留存，首次全量不回溯。
+- `app/catalog/collectors/appmagic.py` + `app/catalog/session/appmagic_session.py`（阶段 17）：AppMagic known 时间线监控源
+  （`downloadable=False`，入库 `downloadable=0`、不进对外 `/versions`，只供监控/缺口对账 `list_known_only`）。
+  cookie 外部注入（cf_clearance + dashly_auth_token），缺则降级。默认关。
 - `app/catalog/runtime.py`：`build_catalog`/`build_collectors`——按 settings + provider 开关装配带采集器的 `VersionCatalog`，路由与 lifespan 复用。
 - `app/utils/`：文件名、hash、ZIP 小工具。
 

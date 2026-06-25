@@ -59,6 +59,14 @@ class Settings(BaseSettings):
     archive_concurrency: int = 1
     archive_max_retries: int = 2
 
+    # AppMagic known 时间线（阶段 17，§7）：内部监控源，补 known 层（无 code、无源可下、不进对外 /versions）。
+    # 默认关，运维成本高：需外部注入 cf_clearance（过 Cloudflare）+ dashly_auth_token（登录态）；缺则降级。
+    appmagic_enabled: bool = False
+    appmagic_cf_clearance: str | None = None
+    appmagic_auth_token: str | None = None
+    appmagic_country: str = "US"
+    appmagic_store: int = 1
+
     # APKPure / Google Play 系 provider 的上游代理；CDN 被 Cloudflare 拦或本机出口受限时配置。
     # 格式 http://USER:PASS@HOST:PORT（HTTP/HTTPS 代理，SOCKS5 不支持，Chromium 无法用带鉴权的 SOCKS5）。
     # 留空则直连。配置后这些 provider 的全部上游流量统一走该代理：

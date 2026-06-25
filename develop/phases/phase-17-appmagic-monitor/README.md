@@ -55,8 +55,22 @@ app/core/config.py             # APPMAGIC_ENABLED、cookie 注入方式
 
 ## 当前状态
 
-- 未开始（二期，运维成本高、默认关）。依赖阶段 11（采集器框架）+ 阶段 10（known 层存储）。
-  cookie/会话托管方式（常驻 context vs 外部注入）落地前定。
+- **已完成（2026-06-26，二期，默认关）**。依赖阶段 11（采集器框架）+ 阶段 10/16（known 层 + 缺口对账）。
+- 会话托管选型（步骤 3）：**外部注入 cookie**（`cf_clearance` + `dashly_auth_token` 来自 config/env），
+  缺任一即 `session.available()=False`、采集器降级返回空；探到 401/403 时 `invalidate()`。Playwright 常驻登录
+  context 自动刷新留待后续运维方案。
+- 落地：
+  - `app/catalog/session/appmagic_session.py`：`AppMagicSession`（cookie 注入 + available 降级 + invalidate）。
+  - `app/catalog/collectors/appmagic.py`：`AppMagicCollector`（`downloadable=False`、POST releases、按 versionName
+    去重保留 `[首次, 末次]` 日期、无 code、cookie 不可用降级、401/403 置失效）。
+  - `app/catalog/collectors/base.py`：`Collector.downloadable` 标志；`VersionRecord.last_release_date`。
+  - `app/catalog/catalog.py`：`_persist` 按源 `downloadable` upsert（**MAX 合并**：任一可下载源命中即 1，known-only 只贡献 0）；
+    归档事件**排除 known-only**；`list_known_only(package)` 缺口对账（内部，不对外）。
+  - config / `.env.example` / runtime：`APPMAGIC_ENABLED`（默认关）+ cf_clearance/auth_token/country/store。
+- 测试：`tests/catalog/test_collectors_appmagic.py`（去重+首末日期、known-only、cookie 不可用降级、invalidate 5）+
+  `test_catalog.py`（known-only 入库 downloadable=0 且不出 /versions、进缺口清单；归档排除 known-only 2）。全量 165 passed。
+- **未做（按计划）**：Playwright 自动刷新 cookie；`release_date` 作多源对齐二级键（当前按 versionName 归并，日期只入 known 层）。
+  真实 cookie 端到端验证需运维注入。
 
 ## 本阶段不做
 

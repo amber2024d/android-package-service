@@ -11,8 +11,9 @@ START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class FakeCollector(Collector):
-    def __init__(self, source: str, records: list[VersionRecord], *, fail: bool = False):
+    def __init__(self, source: str, records: list[VersionRecord], *, fail: bool = False, downloadable: bool = True):
         self.source = source
+        self.downloadable = downloadable
         self._records = list(records)
         self.fail = fail
         self.calls = 0
@@ -164,6 +165,49 @@ def test_single_flight_runs_one_task_per_package(tmp_path):
     asyncio.run(scenario())
     assert calls["n"] == 1
     assert [r[0] for r in _versions(store.db_path)] == ["1.0.0"]
+
+
+def test_known_only_source_stored_not_downloadable(tmp_path):
+    # AppMagic 这类 known-only 源（downloadable=False）：入库 downloadable=0、不出 /versions、进缺口清单。
+    downloadable = FakeCollector("apkpure", [VersionRecord("3.0.0", 300)])
+    known = FakeCollector(
+        "appmagic",
+        [VersionRecord("3.0.0", None, release_date="2026-01-01"), VersionRecord("2.0.0", None, release_date="2025-06-01")],
+        downloadable=False,
+    )
+    cat, db = _catalog(tmp_path, [downloadable, known])
+
+    asyncio.run(cat.ensure_collected("p"))
+
+    # 3.0.0 两源都有 → downloadable=1（MAX 合并）；2.0.0 只 known → downloadable=0
+    assert cat.list_downloadable("p") == [("3.0.0", 300)]
+    assert [name for name, _first, _last in cat.list_known_only("p")] == ["2.0.0"]
+
+
+def test_archive_events_exclude_known_only(tmp_path):
+    events: list[list] = []
+
+    async def on_new(package, versions):
+        events.append(sorted(versions))
+
+    downloadable = FakeCollector("apkpure", [VersionRecord("1.0.0", 1)])
+    known = FakeCollector("appmagic", [VersionRecord("0.9.0", None)], downloadable=False)
+    clock = Clock(START)
+    cat = VersionCatalog(
+        CatalogStore(tmp_path / "catalog.sqlite"),
+        [downloadable, known],
+        ttl_hours=6,
+        now_fn=clock,
+        on_new_versions=on_new,
+    )
+
+    asyncio.run(cat.ensure_collected("p"))  # 全量基线，无事件
+    clock.advance(hours=7)
+    downloadable.set_records([VersionRecord("1.0.0", 1), VersionRecord("1.1.0", 2)])  # 新可下载
+    known.set_records([VersionRecord("0.9.0", None), VersionRecord("0.8.0", None)])  # 新 known-only
+    asyncio.run(cat.ensure_collected("p"))
+
+    assert events == [[("1.1.0", 2)]]  # 只归档新的可下载版本；known-only 0.8.0 不归档
 
 
 def test_on_new_versions_fires_only_on_incremental(tmp_path):
