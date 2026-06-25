@@ -20,6 +20,8 @@
 
 从 [版本目录设计 v2](../android-package-service-version-catalog-design.md) 拆出：把版本枚举从 provider 剥离、目录为唯一枚举层（SQLite + 动态刷新 + 账本），provider 退化为纯下载器。
 
+**一期（核心闭环，确定收益、零封号）**：
+
 | 阶段 | 文档 | 目标 |
 | --- | --- | --- |
 | 10 | [phase-10-version-catalog-store](phase-10-version-catalog-store/README.md) | SQLite 版本库 + 名↔号账本 + 下载回填钩子 |
@@ -27,7 +29,14 @@
 | 12 | [phase-12-download-orchestrator](phase-12-download-orchestrator/README.md) | 下载编排器 + provider 纯下载化 + 下载单飞归一 |
 | 13 | [phase-13-catalog-api](phase-13-catalog-api/README.md) | 对外 /versions(downloadable) + /download(先下后台补) |
 | 14 | [phase-14-catalog-scheduler](phase-14-catalog-scheduler/README.md) | 后台定时刷新（5h + leader 选主） |
-| 15 | [phase-15-apkmirror-source](phase-15-apkmirror-source/README.md) | APKMirror 采集器 + 纯下载 provider + .apkm 解包（二期） |
+
+**二期（扩源、归档、监控；各自独立、按价值排）**：
+
+| 阶段 | 文档 | 目标 |
+| --- | --- | --- |
+| 15 | [phase-15-apkmirror-source](phase-15-apkmirror-source/README.md) | APKMirror 采集器 + 纯下载 provider + .apkm 解包（补 downloadable 深度） |
+| 16 | [phase-16-proactive-archive](phase-16-proactive-archive/README.md) | 主动归档（发现即抓取）——深历史唯一可靠出路 |
+| 17 | [phase-17-appmagic-monitor](phase-17-appmagic-monitor/README.md) | AppMagic known 时间线内部监控源（不进对外接口） |
 
 ## 推进顺序
 
@@ -37,10 +46,11 @@
 框架 -> 领域/API/fallback -> 公共下载/XAPK -> Aptoide -> APKPure signed -> APKPure proto -> Google Play -> APKPure web -> 部署收尾
 ```
 
-版本目录 v2 在上面 9 个阶段之后推进，内部按依赖串行：
+版本目录 v2 在上面 9 个阶段之后推进，一期按依赖串行，二期各自独立、按价值排：
 
 ```text
-目录基座(10) -> 采集器/刷新(11) -> 编排器/provider 纯下载(12) -> 对外接口(13) -> 定时刷新(14) -> APKMirror 源(15, 二期)
+一期：目录基座(10) -> 采集器/刷新(11) -> 编排器/provider 纯下载(12) -> 对外接口(13) -> 定时刷新(14)
+二期：主动归档(16, 只依赖一期、最轻最值) / APKMirror 源(15) / AppMagic 监控(17, 运维重、最后)
 ```
 
 每个阶段完成前只做本阶段必需能力。发现“以后可能要”的能力，先记在阶段文档的非目标里，等真实需要再加。

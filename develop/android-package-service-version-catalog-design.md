@@ -409,9 +409,12 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
    枚举逻辑从 provider 搬出）+ 动态刷新（首访全量 / 复访增量，v2 §D）+ 名↔号账本与下载后回填钩子（v2 §E）+
    编排器（name↔code 补全 / 选源 / 传键）+ provider 退化为纯下载器；对外 `/versions`(downloadable) 与
    `/download`(name|code|latest) 两接口（v2 §B）。
-2. **二期**：接 AppMagic 时间线源（解决 Cloudflare+cookie 运维），主要补 **known** 层；**接入 APKMirror
-   downloadable 源适配器**（已实测确认能把 2.x 段深度从 25 拉到 107，见 §11.2）。
+2. **二期**：APKMirror downloadable 源（补深度，§11.2）+ 主动归档（发现即抓取，§11.1）+ AppMagic known 时间线
+   内部监控源（补 known 层、解决 Cloudflare+cookie 运维）。各自独立，已拆为
+   [阶段 15 / 16 / 17](phases/README.md)。
 3. **三期（可选）**：存在性探针、按设备 profile 选 vc 等精细化。
+
+> 一期对应 [阶段 10–14](phases/README.md)，二期对应阶段 15–17。
 
 ### 11.1 主动归档（深历史的唯一可靠出路）
 
@@ -419,7 +422,8 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 **面向未来主动归档**：监控发现新版本时**当即下载并入库**（趁它还在商店），把 NAS artifact 存储
 当成**自己的版本档案馆**，按 `{package}/{versionName}/{versionCode}` 永久留存。配合 §5-B 的账本，
 服务用得越久，自己掌握的可下载历史越深——这是唯一不依赖上游保留策略的路径。
-（与现有「下载即落 NAS」天然契合，只需加「发现即抓取」的触发。）
+（与现有「下载即落 NAS」天然契合，只需加「发现即抓取」的触发。）已拆为
+[阶段 16：主动归档](phases/README.md)。
 
 ### 11.2 已评估：APKMirror 作为更深的 downloadable 源（2026-06-25 实测，**结论：纳入**）
 
