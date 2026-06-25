@@ -22,7 +22,10 @@
 - `app/catalog/collectors/`（阶段 11）：各源版本采集器（`apkpure` 复用 `apkpure_versions`、`aptoide` 自带 `app/get`），
   产出 `VersionRecord`（name + 可选 code + 该源稳定下载键）。
 - `app/catalog/catalog.py`（阶段 11）：`VersionCatalog.ensure_collected` 唯一枚举入口——首访全量/复访增量+TTL、
-  聚合 upsert `versions`/`version_sources`、收集单飞（进程内 task + 跨 worker SQLite 租约）。编排器/对外接口/定时刷新见阶段 12–14。
+  聚合 upsert `versions`/`version_sources`、收集单飞（进程内 task + 跨 worker SQLite 租约）。
+- `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 的入口，用 `ledger`/`versions` 补全
+  name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。provider 仍各自按需自解析下载键。
+  对外接口/定时刷新见阶段 13–14。
 - `app/utils/`：文件名、hash、ZIP 小工具。
 
 ## 运行配置

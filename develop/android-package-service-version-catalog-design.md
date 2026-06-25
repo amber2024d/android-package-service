@@ -123,7 +123,11 @@ collection_state(                           -- 驱动「全量 vs 增量」
 
 > **落地（阶段 10）**：账本写入与下载后回填钩子已实现（`app/catalog/ledger.py` + `downloader._backfill_ledger`）。
 > 账本只记**产物 manifest 的权威事实**（裸 APK 走自带极简 AXML 解析；XAPK/`.apkm` 直读 JSON），
-> 解析不全则跳过、不拿源声称值兜底；反序 code 记 warning 不阻断。name↔code **补全/选源/路由**属编排器，待阶段 12。
+> 解析不全则跳过、不拿源声称值兜底；反序 code 记 warning 不阻断。
+>
+> **落地（阶段 12）**：name↔code **补全/选源/路由**已由 `DownloadOrchestrator`（`app/catalog/orchestrator.py`）实现——
+> 先查 `ledger` 权威、再查 `versions` 采集（有就用、查不到不阻塞）。`/download` 经编排器走通。
+> provider 接口**未**收敛为纯下载（避免冷目录「按 code 下历史版」回归，顺延至阶段 13 目录预热后，见阶段 12 README 范围决策）。
 
 - name→code（Google 下载刚需）：先查 `ledger`（权威、不过期），再查带 code 的 `version_sources`；都没有则该版本对
   Google 不可下，降级到 APKPure/APKMirror 按 name 下。
@@ -188,6 +192,9 @@ collection_state(                           -- 驱动「全量 vs 增量」
 复用 artifact：同一目标并发时，第一个下，后到的拿锁后看到 artifact 已存即直接返回。**「后面同样的都等一个下载任务」
 本就成立**。需补一处：编排器先按**已知 name↔code 归一**下载键（优先 versionCode，缺则 versionName），
 让「按名」「按号」指向同一版本的请求落到**同一把锁**，不会并行下成两份。
+
+> **落地（阶段 12）**：① 的归一已实现——编排器补全 name↔code 后把归一版本引用传给 `downloader.download` 的
+> `lock_version_key`，`_lock_key` 按 code 优先→补全值→name/latest 计算锁 key（只增不减、冷目录与重构前等价）。
 
 **② 收集单飞（同包只收集一个任务）** —— **新增**。
 - **进程内**：`dict[package, asyncio.Task]`（或 `asyncio.Event`）。触发时若该包已有在跑的收集任务，**直接复用**

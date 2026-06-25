@@ -36,8 +36,8 @@ class PackageDownloader:
         self.builder = XapkBuilder()
         self.ledger = VersionLedger(CatalogStore(settings.catalog_db_path)) if settings.catalog_backfill_enabled else None
 
-    async def download(self, plan: DownloadPlan, request_id: str | None = None) -> Path:
-        key = (plan.provider, plan.package_name, plan.version_key)
+    async def download(self, plan: DownloadPlan, request_id: str | None = None, *, lock_version_key: str | None = None) -> Path:
+        key = self._lock_key(plan, lock_version_key)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
             existing = self.store.existing(plan)
@@ -54,6 +54,20 @@ class PackageDownloader:
             self._log_artifact("artifact_written", plan, artifact, request_id)
             await self._backfill_ledger(plan, artifact, request_id)
             return artifact
+
+    def _lock_key(self, plan: DownloadPlan, lock_version_key: str | None) -> tuple[str, str, str]:
+        """下载锁 key（§H ①）：versionCode 优先，其次编排器补全的版本引用，最后 plan 自带的 name/latest。
+
+        让「按名」「按号」指向同一版本的并发请求落到同一把锁，不并行下成两份。归一只增不减：
+        plan 已解析出 code 时仍以 code 为准，与重构前等价。
+        """
+        if plan.version_code is not None:
+            version_key = str(plan.version_code)
+        elif lock_version_key:
+            version_key = lock_version_key
+        else:
+            version_key = plan.version_key
+        return (plan.provider, plan.package_name, version_key)
 
     async def _fetch_files(self, plan: DownloadPlan, files_dir: Path) -> dict[str, Path]:
         fetched: dict[str, Path] = {}

@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 from app.api.errors import error_response
+from app.catalog.orchestrator import DownloadOrchestrator
+from app.catalog.store import CatalogStore
 from app.core.config import Settings, get_settings
 from app.core.logging import log_event
-from app.domain.errors import AggregateProviderError, ProviderException
+from app.domain.errors import AggregateProviderError
 from app.domain.models import AndroidPackageRequest
 from app.download.downloader import PackageDownloader
 from app.providers.factory import ProviderFactory
@@ -23,6 +25,14 @@ def get_provider_factory(settings: Settings = Depends(get_settings)) -> Provider
 
 def get_downloader(settings: Settings = Depends(get_settings)) -> PackageDownloader:
     return PackageDownloader(settings)
+
+
+def get_orchestrator(
+    settings: Settings = Depends(get_settings),
+    factory: ProviderFactory = Depends(get_provider_factory),
+    downloader: PackageDownloader = Depends(get_downloader),
+) -> DownloadOrchestrator:
+    return DownloadOrchestrator(CatalogStore(settings.catalog_db_path), factory, downloader)
 
 
 def request_from_query(
@@ -102,52 +112,20 @@ async def download_app(
     version_code: int | None = Query(default=None, alias="versionCode"),
     version_name: str | None = Query(default=None, alias="versionName"),
     provider: str | None = Query(default=None),
-    factory: ProviderFactory = Depends(get_provider_factory),
-    downloader: PackageDownloader = Depends(get_downloader),
+    orchestrator: DownloadOrchestrator = Depends(get_orchestrator),
 ):
     request_id = request_id_for(http_request)
     request = request_from_query(package_name, version_code, version_name, provider)
-    errors = []
     try:
-        providers = factory.resolve(request.preferred_provider)
+        artifact = await orchestrator.download(request, request_id=request_id)
     except AggregateProviderError as exc:
-        log_provider_failure(request_id, request, exc)
+        # 编排器已逐条记 provider_failed / 解析失败；这里只负责出错误响应。
         return error_response(exc)
-
-    for resolved_provider in providers:
-        try:
-            plan = await resolved_provider.get_download_plan(request)
-            artifact = await downloader.download(plan, request_id=request_id)
-            log_event(
-                logger,
-                "download_ok",
-                request_id=request_id,
-                package_name=plan.package_name,
-                version_code=plan.version_code,
-                version_name=plan.version_name,
-                provider=plan.provider,
-                upstream_status="ok",
-                artifact_path=str(artifact),
-            )
-            return FileResponse(
-                artifact,
-                media_type=media_type_for(artifact),
-                filename=artifact.name,
-            )
-        except ProviderException as exc:
-            errors.append(exc.provider_error)
-            log_event(
-                logger,
-                "provider_failed",
-                request_id=request_id,
-                package_name=package_name,
-                version_code=version_code,
-                version_name=version_name,
-                provider=exc.provider_error.provider,
-                upstream_status=exc.provider_error.error.value,
-                message=exc.provider_error.message,
-            )
-    return error_response(AggregateProviderError(errors))
+    return FileResponse(
+        artifact,
+        media_type=media_type_for(artifact),
+        filename=artifact.name,
+    )
 
 
 def media_type_for(path: Path) -> str:
@@ -160,22 +138,3 @@ def request_id_for(request: Request) -> str:
     request_id = request.headers.get("x-request-id") or str(uuid4())
     request.state.request_id = request_id
     return request_id
-
-
-def log_provider_failure(
-    request_id: str,
-    request: AndroidPackageRequest,
-    error: AggregateProviderError,
-) -> None:
-    for provider_error in error.provider_errors:
-        log_event(
-            logger,
-            "provider_failed",
-            request_id=request_id,
-            package_name=request.package_name,
-            version_code=request.version_code,
-            version_name=request.version_name,
-            provider=provider_error.provider,
-            upstream_status=provider_error.error.value,
-            message=provider_error.message,
-        )

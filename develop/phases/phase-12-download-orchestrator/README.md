@@ -53,7 +53,27 @@ tests/providers/*.py          # 同步调整
 
 ## 当前状态
 
-- 未开始。依赖阶段 10（账本）+ 阶段 11（version_sources）。
+- **已完成（2026-06-25，编排器优先方案）**。依赖阶段 10（账本）+ 阶段 11（version_sources）。
+- 落地：`app/catalog/orchestrator.py` 的 `DownloadOrchestrator`——name↔code 补全（先 `ledger` 权威、
+  再 `versions` 采集；有就用、查不到不阻塞、一名多号取最高 code）+ 优先级 fallback + 下载锁归一；
+  `/download` 端点改经编排器（`get_orchestrator` 依赖），日志（`download_ok`/`provider_failed`）等价，
+  路由内联 fallback 循环删除。`downloader.download` 加 `lock_version_key`（抽 `_lock_key`：code 优先→补全值→name/latest，
+  只增不减、与重构前等价）。
+- 测试：`tests/catalog/test_orchestrator.py` 10 个（补全双向 + 退回 versions 表 + 账本优先 + 冷目录不阻塞 +
+  最新跳过补全 + fallback + 聚合错误 + 坏 preferred + 锁归一）。全量 121 passed。
+
+### 范围决策（与 README 原计划的差异，已评审确认）
+
+采「**编排器优先**」而非一次性收敛 provider 接口：
+
+- **已做**：编排器集中补全/选源/归一/兜底；`/download` 经编排器；锁归一。三条验收（端点等价、name/code 别名归一、
+  fallback 正常）全部满足。
+- **暂不做（避免回归）**：未把 provider 接口收敛为 `download(package, version, key)`、未从 provider 下载路径移除
+  `list_versions` 枚举。原因：阶段 12 阶段「下载触发的 fire-and-forget 收集」尚未接（阶段 13），此时若移除 provider
+  的按需自解析（含 APKPure 历史版的网页枚举），**冷目录下「按 versionCode 下历史版」会回归**，违背「结果与重构前等价」。
+  provider 现保留各自的「按需自解析单版本」逻辑作为 step 3 的「最小自解析」。
+- **顺延**：完整的 provider 接口收敛 + 移除下载路径枚举，待阶段 13 的目录预热（下载即触发后台收集）落地、
+  能保证下载前目录已可补全后再做，避免冷目录回归。
 
 ## 本阶段不做
 
