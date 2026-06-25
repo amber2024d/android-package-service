@@ -283,6 +283,20 @@ NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘�
 或按总大小超过阈值时删除最旧 artifact
 ```
 
+## 后台定时刷新调度器（阶段 14）
+
+版本目录的「保持新鲜」由进程内定时调度器承载（**承载选型：FastAPI 进程内 + leader 选主**，不引入独立容器/外部 cron）：
+
+- FastAPI `lifespan` 在每个 worker 启动一个 `CatalogRefreshScheduler.run_forever`；多 worker 下用
+  `scheduler_lock`（SQLite 单行 + `BEGIN IMMEDIATE`）选主，**只有一个 worker 真正跑**，其余每轮抢锁失败即跳过。
+- leader 租约带超时（`CATALOG_SCHEDULER_LEASE_SECONDS`，默认 900s）：leader 崩溃后超时可被他人重抢，不会永久占用。
+- 每 `CATALOG_REFRESH_INTERVAL_HOURS`（默认 5）对 `collection_state` 里**已跟踪包**逐包串行跑强制增量
+  （`force` 旁路 TTL，定时任务是主刷新源；按需 TTL 降级为兜底）。单包失败只记日志（`catalog_refresh_package_failed`）
+  不阻断整轮；整轮记 `catalog_refresh_round_ok`（ok/failed 计数）。
+- 关停：`CATALOG_REFRESH_ENABLED=false` 不启动调度器（如想用独立 scheduler 容器/外部触发时）。
+- 选型理由：刷新集就是「服务用过的包」，量级可控、逐包串行即可；进程内 + leader 锁零额外运维，
+  比独立容器简单。包很多需要分片/错峰时再考虑拆独立 worker。
+
 ## 反向代理
 
 如果放在 Nginx 后面，需要允许大文件下载和长连接：

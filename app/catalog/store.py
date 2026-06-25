@@ -48,6 +48,13 @@ CREATE TABLE IF NOT EXISTS collection_state (
     collecting_since TEXT,
     lease_expires TEXT
 );
+
+CREATE TABLE IF NOT EXISTS scheduler_lock (
+    id INTEGER PRIMARY KEY CHECK (id = 1),  -- 单行：定时刷新的 leader 选主（§G）
+    owner TEXT,
+    since TEXT,
+    expires TEXT
+);
 """
 
 # 阶段 10 建的旧库 collection_state 没有租约列；幂等补列，不丢数据。

@@ -45,6 +45,12 @@ class Settings(BaseSettings):
     catalog_collect_ttl_hours: float = 6.0
     catalog_collection_lease_seconds: int = 600
 
+    # 后台定时刷新（阶段 14，§G）：进程内调度器（FastAPI lifespan 起），多 worker 用 scheduler_lock 选主。
+    # 默认每 5h 对已跟踪包跑增量（force 旁路 TTL，定时任务是主刷新源）。leader 租约带超时防崩溃占用。
+    catalog_refresh_enabled: bool = True
+    catalog_refresh_interval_hours: float = 5.0
+    catalog_scheduler_lease_seconds: int = 900
+
     # APKPure / Google Play 系 provider 的上游代理；CDN 被 Cloudflare 拦或本机出口受限时配置。
     # 格式 http://USER:PASS@HOST:PORT（HTTP/HTTPS 代理，SOCKS5 不支持，Chromium 无法用带鉴权的 SOCKS5）。
     # 留空则直连。配置后这些 provider 的全部上游流量统一走该代理：

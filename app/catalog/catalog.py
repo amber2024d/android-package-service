@@ -63,12 +63,14 @@ class VersionCatalog:
         # 跨 worker 租约持有者标识：主机+pid 区分进程；id(self) 让同进程内不同实例（测试模拟双 worker）也可区分。
         self._owner = f"{socket.gethostname()}:{os.getpid()}:{id(self)}"
 
-    async def ensure_collected(self, package: str, *, need_history: bool = True) -> None:
+    async def ensure_collected(self, package: str, *, need_history: bool = True, force: bool = False) -> None:
         """确保 package 已被收集。TTL 内或已全量且无需历史时直接返回（读路径只读库）。
 
+        `force=True`：跳过 TTL/need_history 门，强制收集——给阶段 14 定时刷新用（定时任务是主刷新源、
+        不受按需 TTL 限制，§G）。仍走收集单飞 + 跨 worker 租约。
         同包并发只跑一个收集任务：先到者建任务，后到者 await 同一个（不另起）。
         """
-        if not self._needs_collection(package, need_history):
+        if not self._needs_collection(package, need_history, force):
             return
         key = (str(self.store.db_path), package)
         task = self._inflight.get(key)
@@ -96,7 +98,7 @@ class VersionCatalog:
 
     # ---- 决策：要不要收集 ----------------------------------------------------- #
 
-    def _needs_collection(self, package: str, need_history: bool) -> bool:
+    def _needs_collection(self, package: str, need_history: bool, force: bool = False) -> bool:
         with closing(self.store.connect()) as conn:
             row = conn.execute(
                 "SELECT last_full_at, last_refresh_at FROM collection_state WHERE package = ?",
@@ -104,6 +106,8 @@ class VersionCatalog:
             ).fetchone()
         if row is None or row[0] is None:
             return True  # 从没全量采过
+        if force:
+            return True  # 定时刷新：强制增量，不受 TTL/need_history 门
         if not need_history:
             return False
         last_refresh = row[1]

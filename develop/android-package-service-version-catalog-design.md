@@ -156,6 +156,11 @@ collection_state(                           -- 驱动「全量 vs 增量」
 
 ### G. 后台定时刷新（保对外接口响应）
 
+> **落地（阶段 14）**：`app/catalog/scheduler.py` 的 `CatalogRefreshScheduler`，FastAPI lifespan 进程内起、
+> `scheduler_lock` 选主（承载选型=进程内 + leader 锁，见部署文档）。每 `CATALOG_REFRESH_INTERVAL_HOURS`（默认 5）
+> 对已跟踪包逐包串行 `ensure_collected(force=True)`（旁路 TTL，主刷新源）；单包失败隔离、整轮 ok/failed 可观测；
+> leader 租约带超时可重抢。`/versions` 读路径不触发刷新，已跟踪包稳定读库。
+
 决策② 的「同步收集」只在**首次**接触某包时发生；但若让 `/versions` 之后每次按 TTL 在请求里触发增量刷新，
 仍可能拖慢响应。引入**全局定时刷新任务**，把「保持新鲜」整体挪到后台，读路径只读库。
 

@@ -52,7 +52,17 @@ develop/android-package-service-deployment.md   # 调度器承载方式
 
 ## 当前状态
 
-- 未开始。依赖阶段 11（ensure_collected）。承载方式（进程内 vs 独立容器）与租约超时取值落地前定。
+- **已完成（2026-06-25）**。依赖阶段 11（ensure_collected）。
+- 承载选型（步骤 4）：**FastAPI 进程内调度器 + SQLite `scheduler_lock` leader 选主**（不引入独立容器/外部 cron）。
+  理由见[部署文档「后台定时刷新调度器」](../../android-package-service-deployment.md)；租约超时默认 900s。
+- 落地：`app/catalog/scheduler.py` 的 `CatalogRefreshScheduler`——`run_once`（leader 选主 + 超时重抢、
+  遍历 `last_full_at` 非空的已跟踪包、逐包串行 `ensure_collected(force=True)`、单包失败隔离、整轮 ok/failed 可观测）
+  + `run_forever(stop)`（启动即一轮、之后每 interval、`stop` 置位退出）。`main.py` lifespan 起停（多 worker 选主只一个真跑）。
+  `catalog.ensure_collected` 加 `force`（旁路 TTL，定时为主刷新源）。`store` 加 `scheduler_lock` 表。
+  装配抽到 `app/catalog/runtime.py`（`build_catalog`，路由与 lifespan 复用）。
+- config：`CATALOG_REFRESH_ENABLED`（默认 true）、`CATALOG_REFRESH_INTERVAL_HOURS=5`、`CATALOG_SCHEDULER_LEASE_SECONDS=900`。
+- 测试：`tests/catalog/test_scheduler.py` 6 个（只刷已跟踪、单包失败不阻断整轮、非 leader 跳过、租约超时重抢、
+  force 旁路 TTL、run_forever 被 stop 打断）+ `tests/test_api_catalog.py` lifespan 起停 smoke。全量 134 passed。
 
 ## 本阶段不做
 

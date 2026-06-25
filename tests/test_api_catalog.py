@@ -141,6 +141,22 @@ def test_download_latest_does_not_trigger_collect(tmp_path):
     assert spy.collected == []  # 最新版快路径不触发收集
 
 
+def test_scheduler_lifespan_starts_and_stops_cleanly(tmp_path):
+    # 调度器在 lifespan 起停：无已跟踪包时一轮空转，健康检查正常，退出干净。
+    get_settings.cache_clear()
+    settings = get_settings()
+    settings.data_dir = tmp_path / "data"
+    settings.temp_dir = tmp_path / "tmp"
+    settings.nas_mount_path = tmp_path / "nas"
+    settings.catalog_refresh_enabled = True
+    settings.ensure_directories()
+    try:
+        with TestClient(app) as client:
+            assert client.get("/health").json() == {"status": "ok"}
+    finally:
+        get_settings.cache_clear()
+
+
 def test_download_same_version_reuses_artifact(tmp_path, caplog):
     client, _ = _client(tmp_path)
     spy = _SpyCatalog()  # 隔离后台收集，专测下载复用

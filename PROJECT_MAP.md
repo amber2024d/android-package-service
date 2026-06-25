@@ -26,7 +26,9 @@
   聚合 upsert `versions`/`version_sources`、收集单飞（进程内 task + 跨 worker SQLite 租约）。
 - `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 的入口，用 `ledger`/`versions` 补全
   name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。provider 仍各自按需自解析下载键。
-  对外接口/定时刷新见阶段 13–14。
+- `app/catalog/scheduler.py`（阶段 14）：`CatalogRefreshScheduler`——FastAPI lifespan 起的进程内定时刷新，
+  `scheduler_lock` 选主（多 worker 只一个跑、租约超时重抢），每 5h 对已跟踪包逐包强制增量、单包失败隔离。
+- `app/catalog/runtime.py`：`build_catalog`/`build_collectors`——按 settings + provider 开关装配带采集器的 `VersionCatalog`，路由与 lifespan 复用。
 - `app/utils/`：文件名、hash、ZIP 小工具。
 
 ## 运行配置
