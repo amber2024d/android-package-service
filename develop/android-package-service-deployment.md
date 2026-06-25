@@ -58,6 +58,8 @@ services:
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
+      # 持久状态卷：含版本目录 SQLite 库 + WAL 边车 + token cache + metadata（详见「存储目录」）。
+      # 命名卷跨重启/重建/down（不带 -v）保留；勿 `down -v` / `volume rm`，会清空名↔号账本。
       - app_data:/app/data
       - app_tmp:/app/tmp
       - nas_apks:/mnt/nas/apks
@@ -90,10 +92,15 @@ volumes:
 
 说明：
 
-- `app_data` 保存 token cache、metadata、轻量状态。
-- `app_tmp` 保存下载过程中的临时文件。
+- `app_data` 保存 token cache、metadata、轻量状态，**以及版本目录 SQLite 库 `version-catalog.sqlite`
+  （名↔号账本，随使用累积、不可再生）**。这是**持久状态**不是缓存：命名卷 `app_data`（driver: local）跨
+  容器重启/重建/`docker compose down`（不带 `-v`）都保留，重启不丢数据；**但 `docker compose down -v` /
+  `docker volume rm` 会连卷一起删，账本随之清空**，运维需避免，并建议定期备份（见「存储目录」）。
+- `app_tmp` 保存下载过程中的临时文件，可随时丢弃。
 - `nas_apks` 挂载 NAS，用来保存 APK/XAPK 这类大文件 artifact，避免占满服务器磁盘。
 - `shm_size` 是给 Playwright Chromium 留空间，避免网页兜底路径在容器里不稳定。
+- **版本目录库放本地卷 `app_data`、不放 NAS（CIFS）卷**：SQLite WAL 依赖本地文件锁/共享内存，跑在
+  CIFS 上会损坏；NAS 卷只承载只读复用的大文件 artifact。
 
 ## Dockerfile
 
@@ -223,8 +230,8 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 职责：
 
 ```text
-/app/data        轻量状态、provider cache、metadata
-/app/tmp         下载中的 .part 文件、XAPK 打包临时目录
+/app/data        持久状态：版本目录 SQLite 库、provider cache、metadata（命名卷，必须持久化）
+/app/tmp         下载中的 .part 文件、XAPK 打包临时目录（可丢弃）
 /mnt/nas/apks    最终 APK/XAPK artifact
 ```
 
@@ -232,6 +239,9 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 
 ```text
 /app/data
+  version-catalog.sqlite        版本目录单库（versions/version_sources/ledger/collection_state）
+  version-catalog.sqlite-wal     WAL 边车（与库同卷，重启/崩溃后回放，不可单独删）
+  version-catalog.sqlite-shm     WAL 共享内存索引
   cache/
     aurora_token.json
   logs/
@@ -250,6 +260,17 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
           artifact.xapk
           metadata.json
 ```
+
+版本目录库的备份：`version-catalog.sqlite` 是累积的不可再生状态，建议定期备份。热备份用 SQLite 自带的
+联机备份（不要直接 `cp` 正在写的库 + WAL）：
+
+```sh
+docker compose exec android-package-service \
+  sqlite3 /app/data/version-catalog.sqlite ".backup '/app/data/version-catalog.backup.sqlite'"
+```
+
+若运维更希望库落在显式的宿主机目录（便于直接备份/迁移），可把 `app_data` 换成 bind mount（如
+`/opt/android-package-service/data:/app/data`，参考 dev 变体的 `./data:/app/data`），持久性等价，目录更可见。
 
 NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘。这样可以避免大文件悄悄把服务器磁盘打满。
 
