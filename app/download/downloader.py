@@ -11,6 +11,9 @@ from urllib.parse import urlparse
 
 import httpx
 
+from app.catalog.ledger import VersionLedger
+from app.catalog.manifest import parse_artifact
+from app.catalog.store import CatalogStore
 from app.core.config import Settings
 from app.core.logging import log_event
 from app.domain.errors import ErrorCode, ProviderError, ProviderException
@@ -31,6 +34,7 @@ class PackageDownloader:
         self.verifier = FileVerifier()
         self.store = ArtifactStore(settings.artifacts_dir, self.verifier)
         self.builder = XapkBuilder()
+        self.ledger = VersionLedger(CatalogStore(settings.catalog_db_path)) if settings.catalog_backfill_enabled else None
 
     async def download(self, plan: DownloadPlan, request_id: str | None = None) -> Path:
         key = (plan.provider, plan.package_name, plan.version_key)
@@ -48,6 +52,7 @@ class PackageDownloader:
             artifact = self._finalize(plan, fetched)
             self.store.write_metadata(plan, artifact)
             self._log_artifact("artifact_written", plan, artifact, request_id)
+            await self._backfill_ledger(plan, artifact, request_id)
             return artifact
 
     async def _fetch_files(self, plan: DownloadPlan, files_dir: Path) -> dict[str, Path]:
@@ -166,6 +171,68 @@ class PackageDownloader:
         self.builder.build(plan, fetched, artifact, build_dir)
         self.verifier.verify_artifact(artifact, plan)
         return artifact
+
+    async def _backfill_ledger(self, plan: DownloadPlan, artifact: Path, request_id: str | None) -> None:
+        """成功落 artifact 后，解析产物 manifest 回填名↔号账本（旁路、失败隔离）。
+
+        账本只记**产物 manifest 的权威事实**（§5-B / §E：ledger=manifest 权威；源声称的 name↔code
+        属于 version_sources，阶段 11 再接）。manifest 解析不出完整 (package, name, code) 就跳过，
+        不拿 plan 上源声称的版本兜底。解析或写库的任何异常都只记日志，绝不影响下载产物与响应。
+        """
+        if self.ledger is None:
+            return
+        try:
+            info = await asyncio.to_thread(parse_artifact, artifact)
+            if info is None or not info.package_name or not info.version_name or info.version_code is None:
+                self._log_backfill(
+                    "ledger_backfill_skipped",
+                    plan,
+                    request_id,
+                    package=info.package_name if info else None,
+                    version_name=info.version_name if info else None,
+                    version_code=info.version_code if info else None,
+                )
+                return
+            written = await self.ledger.upsert(info.package_name, info.version_name, info.version_code, plan.provider)
+            self._log_backfill(
+                "ledger_backfilled" if written else "ledger_backfill_duplicate",
+                plan,
+                request_id,
+                package=info.package_name,
+                version_name=info.version_name,
+                version_code=info.version_code,
+            )
+        except Exception as exc:  # noqa: BLE001 — 回填绝不影响下载
+            log_event(
+                logger,
+                "ledger_backfill_failed",
+                request_id=request_id,
+                package_name=plan.package_name,
+                version_code=plan.version_code,
+                version_name=plan.version_name,
+                provider=plan.provider,
+                message=str(exc),
+            )
+
+    def _log_backfill(
+        self,
+        event: str,
+        plan: DownloadPlan,
+        request_id: str | None,
+        *,
+        package: str | None = None,
+        version_name: str | None = None,
+        version_code: int | None = None,
+    ) -> None:
+        log_event(
+            logger,
+            event,
+            request_id=request_id,
+            package_name=package or plan.package_name,
+            version_code=version_code,
+            version_name=version_name,
+            provider=plan.provider,
+        )
 
     def _validate_url(self, url: str, via_proxy: bool = False) -> None:
         parsed = urlparse(url)

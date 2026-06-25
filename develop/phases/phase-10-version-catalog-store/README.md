@@ -59,7 +59,20 @@ app/core/config.py          # catalog 库路径（默认 data/version-catalog.sq
 
 ## 当前状态
 
-- 未开始。打底阶段，后续 11–14 全依赖本阶段的 `store` / `ledger`。
+- **已完成（2026-06-25）**。打底阶段，后续 11–14 依赖本阶段的 `store` / `ledger`。
+- 落地：`app/catalog/store.py`（四表 + WAL + per-package `asyncio` 写锁）、`app/catalog/ledger.py`
+  （append-only 幂等 upsert + 反序 sanity warning）、`app/catalog/manifest.py`（XAPK `manifest.json` /
+  `.apkm` `info.json` 直读 + 裸 APK 自带极简 AXML 解析）。
+- 下载回填：`app/download/downloader.py` 成功落 artifact 后 `await self._backfill_ledger(...)`，
+  解析失败/写库异常只记日志（`ledger_backfill_*` 事件），下载产物与响应零影响。开关 `CATALOG_BACKFILL_ENABLED`。
+- **AXML 选型决策**：裸 APK 用**自带极简 AXML 解析器**（零运行时依赖、不依赖容器内 aapt/androguard），
+  只取 manifest 元素的 `package`/`versionCode`/`versionName`，按属性名字符串 + 资源 ID 双重匹配，
+  UTF-8/UTF-16 字符串池都支持。本机 aapt 仅用于校验 fixture。
+- 账本只记**产物 manifest 的权威事实**；源声称的 name↔code 留给 `version_sources`（阶段 11），
+  manifest 解析不全则跳过、不拿 plan 兜底。
+- 测试：`tests/catalog/`（store/ledger/manifest/回填）22 个，含真实 F-Droid 二进制 manifest fixture
+  `tests/catalog/fixtures/AndroidManifest.fdroid.xml`（UTF-16，aapt 实测 1023052 / 1.23.2）。
+  全量 101 passed。
 
 ## 本阶段不做
 

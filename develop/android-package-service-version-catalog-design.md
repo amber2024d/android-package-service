@@ -67,6 +67,9 @@
 
 ### C. SQLite 版本库（决策③）
 
+> **落地（阶段 10，2026-06-25）**：四表已建于 `app/catalog/store.py`（`data/version-catalog.sqlite`，WAL，
+> per-package `asyncio` 写锁）。阶段 10 只写 `ledger`（下载回填）；其余三表先建好供阶段 11–14。
+
 单库多表（建议 `data/version-catalog.sqlite`，写入复用下载层 per-key 锁）：
 
 ```sql
@@ -113,6 +116,10 @@ collection_state(                           -- 驱动「全量 vs 增量」
 > 按需调用退为「从没采过」的首次全量 + 定时任务停摆时的 TTL 兜底。
 
 ### E. name↔code 补全与账本（编排器集中做）
+
+> **落地（阶段 10）**：账本写入与下载后回填钩子已实现（`app/catalog/ledger.py` + `downloader._backfill_ledger`）。
+> 账本只记**产物 manifest 的权威事实**（裸 APK 走自带极简 AXML 解析；XAPK/`.apkm` 直读 JSON），
+> 解析不全则跳过、不拿源声称值兜底；反序 code 记 warning 不阻断。name↔code **补全/选源/路由**属编排器，待阶段 12。
 
 - name→code（Google 下载刚需）：先查 `ledger`（权威、不过期），再查带 code 的 `version_sources`；都没有则该版本对
   Google 不可下，降级到 APKPure/APKMirror 按 name 下。

@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 120.0
     http_user_agent: str = Field(default="AndroidPackageService/0.1.0")
 
+    # 版本目录（阶段 10+）：名↔号账本 / 版本库的 SQLite 单库，落在本地 data_dir（非 NAS，WAL 友好）。
+    # 下载成功后回填账本是纯旁路；关掉只是停止积累，不影响下载本身。
+    catalog_backfill_enabled: bool = True
+
     # APKPure / Google Play 系 provider 的上游代理；CDN 被 Cloudflare 拦或本机出口受限时配置。
     # 格式 http://USER:PASS@HOST:PORT（HTTP/HTTPS 代理，SOCKS5 不支持，Chromium 无法用带鉴权的 SOCKS5）。
     # 留空则直连。配置后这些 provider 的全部上游流量统一走该代理：
@@ -68,6 +72,10 @@ class Settings(BaseSettings):
     @property
     def artifacts_dir(self) -> Path:
         return self.nas_mount_path / "artifacts"
+
+    @property
+    def catalog_db_path(self) -> Path:
+        return self.data_dir / "version-catalog.sqlite"
 
     def ensure_directories(self) -> None:
         for path in (

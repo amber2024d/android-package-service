@@ -15,6 +15,10 @@
 - `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取/版本目录工具（非独立 provider），
   `apkpure-signed` 和 `apkpure-web` 的历史版本能力都走它。（后续 versions 获取重构主要动这里。）
 - `app/download/`：artifact 复用、`.part` 落盘、校验、XAPK 打包；`PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
+  下载成功后挂 `_backfill_ledger` 旁路钩子，解析产物 manifest 回填版本目录账本（失败隔离，不影响下载）。
+- `app/catalog/`：版本目录（阶段 10+）持久层。`store.py`（SQLite 单库四表 + WAL + per-package 写锁）、
+  `ledger.py`（名↔号账本，append-only 幂等 + 反序 sanity warning）、`manifest.py`（产物 → `(name, code)`：
+  XAPK `manifest.json` / `.apkm` `info.json` 直读 + 裸 APK 自带极简 AXML 解析）。源采集器/编排器/对外接口/定时刷新见阶段 11–14。
 - `app/utils/`：文件名、hash、ZIP 小工具。
 
 ## 运行配置
@@ -30,6 +34,8 @@
 ## 存储
 
 - `data/`：轻量状态、provider cache、metadata、日志。
+- `data/version-catalog.sqlite`：版本目录 SQLite 单库（versions / version_sources / ledger / collection_state），本地盘、WAL（+ `-wal`/`-shm` 边车）。
+  Docker 下落在持久命名卷 `app_data`（`/app/data`），跨重启保留；持久化与备份见[部署设计](develop/android-package-service-deployment.md)。放本地卷不放 NAS（WAL 不能跑 CIFS）。
 - `data/cache/aurora_token.json`：Google Play / Aurora 匿名 token 缓存。
 - `data/cache/google-play-data/`：gpapi 流式 data 的临时内部文件源缓存。
 - `tmp/`：下载 `.part` 和 XAPK 构建临时文件。
