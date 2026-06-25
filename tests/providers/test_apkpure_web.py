@@ -108,6 +108,69 @@ def test_constructed_download_url_when_download_page_has_no_cdn():
     assert plan.files[0].url == "https://d.apkpure.com/b/APKS/org.fdroid.fdroid?versionCode=1023052"
 
 
+def test_historical_by_name_resolves_directly_without_enumeration(monkeypatch):
+    # 阶段 12 收口：历史版（!= 详情页最新）有 versionName 时复用 detail_url 直命中 /download/{name}，不抓 /versions。
+    import app.providers.apkpure_web as apkpure_web
+
+    provider = APKPureWebProvider()
+    detail = provider._detail_from_html(_detail_html(), "org.fdroid.fdroid", "https://apkpure.com/f-droid/org.fdroid.fdroid")
+    provider._load_detail = _responder(detail)
+
+    enumerated = {"called": False}
+
+    async def boom(_detail):
+        enumerated["called"] = True
+        return []
+
+    provider._historical_versions = boom
+
+    captured = {}
+
+    async def fake_resolve(version, **kwargs):
+        from app.domain.models import PackageFile
+
+        captured["version"] = version
+        return PackageFile(type=PackageFileType.BASE_APK, name="base.apk", url="https://d.apkpure.com/custom/120.apk")
+
+    monkeypatch.setattr(apkpure_web.apkpure_versions, "resolve_version_file", fake_resolve)
+
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid", version_name="1.20.0")))
+
+    assert enumerated["called"] is False
+    assert captured["version"].download_page_url == "https://apkpure.com/f-droid/org.fdroid.fdroid/download/1.20.0"
+    assert plan.version_name == "1.20.0"
+    assert plan.files[0].url == "https://d.apkpure.com/custom/120.apk"
+
+
+def test_historical_by_code_falls_back_to_enumeration(monkeypatch):
+    import app.providers.apkpure_web as apkpure_web
+
+    provider = APKPureWebProvider()
+    detail = provider._detail_from_html(_detail_html(), "org.fdroid.fdroid", "https://apkpure.com/f-droid/org.fdroid.fdroid")
+    provider._load_detail = _responder(detail)
+    provider._historical_versions = _responder(
+        [
+            apkpure_web.apkpure_versions.APKPureVersion(
+                "org.fdroid.fdroid", "1.20.0", 1020000, "b/APK/y", PackageFileType.BASE_APK,
+                "https://apkpure.com/f-droid/org.fdroid.fdroid",
+            )
+        ]
+    )
+
+    async def fake_resolve(version, **kwargs):
+        from app.domain.models import PackageFile
+
+        assert version.version_code == 1020000 and version.version_name == "1.20.0"
+        return PackageFile(type=PackageFileType.BASE_APK, name="base.apk", url="https://d.apkpure.com/custom/old.apk")
+
+    monkeypatch.setattr(apkpure_web.apkpure_versions, "resolve_version_file", fake_resolve)
+
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1020000)))
+
+    assert plan.version_code == 1020000
+    assert plan.files[0].url == "https://d.apkpure.com/custom/old.apk"
+
+
 def test_factory_registers_web_provider_when_enabled(tmp_path):
     settings = Settings(
         data_dir=tmp_path / "data",

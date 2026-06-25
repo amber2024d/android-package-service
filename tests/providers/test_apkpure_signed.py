@@ -72,14 +72,48 @@ def test_specified_latest_version_success():
     assert plan.version_name == "1.23.2"
 
 
-@pytest.mark.parametrize(
-    "package_request",
-    [
-        AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1020000),
-        AndroidPackageRequest(package_name="org.fdroid.fdroid", version_name="1.20.0"),
-    ],
-)
-def test_specified_old_version_resolves_via_web_catalog(monkeypatch, package_request):
+def test_old_version_by_name_resolves_directly_without_enumeration(monkeypatch):
+    # 阶段 12 收口：有 versionName 直接命中 /download/{name}，不抓 /versions 全量。
+    provider = APKPureSignedProvider()
+    provider._request_json = _responder(_payload())
+
+    enumerated = {"called": False}
+
+    async def boom(package_name):
+        enumerated["called"] = True
+        return []
+
+    provider._web_versions = boom
+
+    async def fake_detail_url(*args, **kwargs):
+        return "https://apkpure.com/f-droid/org.fdroid.fdroid"
+
+    monkeypatch.setattr(apkpure_versions, "resolve_detail_url", fake_detail_url)
+
+    captured = {}
+
+    async def fake_resolve(version, **kwargs):
+        captured["version"] = version
+        return PackageFile(
+            type=PackageFileType.BASE_APK,
+            name="base.apk",
+            url="https://d.apkpure.com/custom/120.apk",
+            metadata={"download.fallback": "wget"},
+        )
+
+    monkeypatch.setattr(apkpure_versions, "resolve_version_file", fake_resolve)
+
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid", version_name="1.20.0")))
+
+    assert enumerated["called"] is False  # 不枚举 /versions
+    assert captured["version"].version_name == "1.20.0"
+    assert captured["version"].download_page_url == "https://apkpure.com/f-droid/org.fdroid.fdroid/download/1.20.0"
+    assert plan.version_name == "1.20.0"
+    assert plan.files[0].url == "https://d.apkpure.com/custom/120.apk"
+
+
+def test_old_version_by_code_falls_back_to_web_catalog(monkeypatch):
+    # 编排器补不出名（按 code 且目录冷）时，窄兜底回 /versions 枚举按 code 找——保不回归。
     provider = APKPureSignedProvider()
     provider._request_json = _responder(_payload())
     provider._web_versions = _responder(_catalog())
@@ -97,9 +131,8 @@ def test_specified_old_version_resolves_via_web_catalog(monkeypatch, package_req
 
     monkeypatch.setattr(apkpure_versions, "resolve_version_file", fake_resolve)
 
-    plan = _run(provider.get_download_plan(package_request))
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1020000)))
 
-    assert plan.provider == "apkpure-signed"
     assert plan.version_code == 1020000
     assert plan.version_name == "1.20.0"
     assert plan.files[0].url == "https://d.apkpure.com/custom/old.apk"

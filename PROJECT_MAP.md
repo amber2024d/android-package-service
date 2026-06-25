@@ -13,8 +13,9 @@
   走版本目录只出 downloadable；`/download` 经编排器，指定版本时 fire-and-forget 触发后台收集（`_spawn_background`）。
 - `app/domain/`：跨 API、provider、下载层共享的模型和错误类型。
 - `app/providers/`：上游来源适配，只产出 `AndroidPackageInfo` 和 `DownloadPlan`。
-- `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取/版本目录工具（非独立 provider），
-  `apkpure-signed` 和 `apkpure-web` 的历史版本能力都走它。（后续 versions 获取重构主要动这里。）
+- `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取工具（非独立 provider）。阶段 11 起 `list_versions`
+  也被目录的 APKPure 采集器复用；阶段 12 收口后，provider **下载路径**默认直命中 `/download/{name}`，只在
+  「按 code 且目录冷」时才用 `list_versions` 窄兜底枚举（`get_package_info`/`/apps` 仍用它列版本）。
 - `app/download/`：artifact 复用、`.part` 落盘、校验、XAPK 打包；`PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
   下载成功后挂 `_backfill_ledger` 旁路钩子，解析产物 manifest 回填版本目录账本（失败隔离，不影响下载）。
 - `app/catalog/`：版本目录持久层 + 枚举层。`store.py`（SQLite 单库四表 + WAL + per-package 写锁 + 租约列迁移）、

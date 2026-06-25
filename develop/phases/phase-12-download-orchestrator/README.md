@@ -75,6 +75,23 @@ tests/providers/*.py          # 同步调整
 - **顺延**：完整的 provider 接口收敛 + 移除下载路径枚举，待阶段 13 的目录预热（下载即触发后台收集）落地、
   能保证下载前目录已可补全后再做，避免冷目录回归。
 
+### 顺延项收口（2026-06-25，阶段 13/14 落地后）
+
+把 APKPure 历史版**下载路径**的全量 `/versions` 枚举去掉（§10：APKPure 下载键就是 versionName）：
+
+- `apkpure-signed` / `apkpure-web` 的 `_historical_download_plan` → `_resolve_historical`：**有 versionName 直接命中
+  `/download/{name}`**（web 复用已加载详情页的 detail_url；signed 走一次 search 拿 slug），不再抓 `/versions` 全量。
+  编排器（阶段 12）已先用账本/目录把 code→name 补上，所以常路是直命中。
+- **窄兜底保不回归**：只有「按 versionCode 且目录冷、编排器补不出名」时才回退到 `/versions` 枚举按 code 找。
+  目录暖后（下载即触发收集 / 定时刷新）该路径自愈为直命中。
+- **范围**：只动 DOWNLOAD 路径；`get_package_info`（`/apps` 的 versions 列表）仍保留枚举（`/apps` 仍需要），
+  其完全退役留待后续（可改 `/apps` 取目录）。aptoide（单次 `app/get` 自解析）、google（按 code）、proto（单次 proto 响应）
+  本就不做独立枚举请求，不改。**未做** `download(package, version, key)` 的接口签名重命名——纯下载语义已由编排器驱动，
+  签名重命名是无行为价值的高 churn 改动，略过。
+- **细节取舍**：直命中路径构造的 `APKPureVersion` 不带 apkid（apkid 兜底链仅在下载页无 CDN 链接时用，极罕见）；
+  按名请求若不经编排器（直连 provider）则 `version_code` 留空，下载成功后由账本钩子（阶段 10）补号。
+- 测试：`tests/providers/test_apkpure_signed.py` / `test_apkpure_web.py` 各加「按 name 直命中不枚举」+「按 code 冷目录窄兜底枚举」。全量 136 passed。
+
 ## 本阶段不做
 
 - 不加新对外接口（阶段 13 接 `/versions` 与 `/download` 新语义）。

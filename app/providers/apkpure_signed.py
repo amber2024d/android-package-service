@@ -126,7 +126,7 @@ class APKPureSignedProvider(AndroidPackageProvider):
     async def _historical_download_plan(
         self, package_name: str, detail: dict[str, Any], request: AndroidPackageRequest
     ) -> DownloadPlan:
-        version = self._select_historical(await self._web_versions(package_name), request)
+        version = await self._resolve_historical(package_name, request)
         package_file = await apkpure_versions.resolve_version_file(
             version,
             provider_id=self.id,
@@ -142,6 +142,34 @@ class APKPureSignedProvider(AndroidPackageProvider):
             provider=self.id,
             files=[package_file],
         )
+
+    async def _resolve_historical(
+        self, package_name: str, request: AndroidPackageRequest
+    ) -> apkpure_versions.APKPureVersion:
+        """纯下载化（阶段 12 收口）：APKPure 历史版下载键就是 versionName（§10），有名直接命中
+        `/download/{name}`，不再抓 `/versions` 全量枚举（枚举已归采集器，阶段 11）。
+
+        只有「按 versionCode 且目录冷、编排器补不出名」时才窄兜底回枚举按 code 找——保不回归。
+        编排器（阶段 12）会先用账本/目录把 code→name 补上，所以常路是直命中。
+        """
+        if request.version_name:
+            detail_url = await apkpure_versions.resolve_detail_url(
+                apkpure_versions.WEB_BASE_URL,
+                package_name,
+                provider_id=self.id,
+                user_agent=self.web_user_agent,
+                timeout_seconds=self.timeout_seconds,
+                proxy=self.proxy,
+            )
+            return apkpure_versions.APKPureVersion(
+                package_name=package_name,
+                version_name=request.version_name,
+                version_code=request.version_code,
+                apkid="",  # 下载页直链为主；apkid 兜底链仅在页面无 CDN 链接时用，目录暖后由账本/源键补
+                file_type=PackageFileType.BASE_APK,
+                detail_url=detail_url,
+            )
+        return self._select_historical(await self._web_versions(package_name), request)
 
     async def _historical_package_info(
         self, package_name: str, detail: dict[str, Any], request: AndroidPackageRequest

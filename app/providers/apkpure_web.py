@@ -129,8 +129,7 @@ class APKPureWebProvider(AndroidPackageProvider):
         )
 
     async def _historical_download_plan(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> DownloadPlan:
-        versions = await self._historical_versions(detail)
-        version = self._select_historical(versions, request)
+        version = await self._resolve_historical(detail, request)
         package_file = await apkpure_versions.resolve_version_file(
             version,
             provider_id=self.id,
@@ -146,6 +145,24 @@ class APKPureWebProvider(AndroidPackageProvider):
             provider=self.id,
             files=[package_file],
         )
+
+    async def _resolve_historical(
+        self, detail: APKPureWebDetail, request: AndroidPackageRequest
+    ) -> apkpure_versions.APKPureVersion:
+        """纯下载化（阶段 12 收口）：有 versionName 就复用已加载详情页的 detail_url 直命中
+        `/download/{name}`，不再抓 `/versions` 全量枚举（§10）。只有「按 code 且目录冷、补不出名」
+        才窄兜底回枚举按 code 找——保不回归。
+        """
+        if request.version_name:
+            return apkpure_versions.APKPureVersion(
+                package_name=detail.package_name,
+                version_name=request.version_name,
+                version_code=request.version_code,
+                apkid="",
+                file_type=PackageFileType.BASE_APK,
+                detail_url=detail.detail_url,
+            )
+        return self._select_historical(await self._historical_versions(detail), request)
 
     async def _historical_package_info(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> AndroidPackageInfo:
         versions = await self._historical_versions(detail)

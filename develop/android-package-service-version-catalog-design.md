@@ -34,6 +34,9 @@
 
 - **Provider = 纯下载器**：对外只有一个能力——「给定包 + 版本引用，取回文件」；优先级 fallback 不变。
   版本枚举/历史列表逻辑（原 `apkpure_versions.list_versions` 等）**搬到目录的源采集器**。
+  > **落地（阶段 12 收口）**：APKPure 历史版**下载路径**已去全量 `/versions` 枚举——有 versionName 直接命中
+  > `/download/{name}`（编排器先把 code→name 补上），仅「按 code 且目录冷」窄兜底枚举（暖后自愈）。
+  > `get_package_info`（`/apps` 版本列表）仍保留枚举，完全退役留待后续。详见阶段 12 README「顺延项收口」。
 - **目录 = 唯一枚举层**：聚合多源、持久化 SQLite、动态刷新、维护 name↔code 账本；对外只给 downloadable。
 - **编排器**：承接 download，用目录/账本把 `name↔code` 补全、选定能下的源、把「该源下载键」交给 provider。
   「由内部维护补全」= 补全集中在编排器做一次，不在每个 provider 重复。
