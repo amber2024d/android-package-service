@@ -16,12 +16,31 @@
 | 8 | [phase-08-apkpure-web-provider](phase-08-apkpure-web-provider/README.md) | APKPure Web 兜底 |
 | 9 | [phase-09-integration-deployment](phase-09-integration-deployment/README.md) | 配置、部署、smoke 和收尾 |
 
+### 版本目录 v2 重构（阶段 10+）
+
+从 [版本目录设计 v2](../android-package-service-version-catalog-design.md) 拆出：把版本枚举从 provider 剥离、目录为唯一枚举层（SQLite + 动态刷新 + 账本），provider 退化为纯下载器。
+
+| 阶段 | 文档 | 目标 |
+| --- | --- | --- |
+| 10 | [phase-10-version-catalog-store](phase-10-version-catalog-store/README.md) | SQLite 版本库 + 名↔号账本 + 下载回填钩子 |
+| 11 | [phase-11-catalog-collectors](phase-11-catalog-collectors/README.md) | 源采集器 + 动态刷新（全量/增量）+ 收集单飞 |
+| 12 | [phase-12-download-orchestrator](phase-12-download-orchestrator/README.md) | 下载编排器 + provider 纯下载化 + 下载单飞归一 |
+| 13 | [phase-13-catalog-api](phase-13-catalog-api/README.md) | 对外 /versions(downloadable) + /download(先下后台补) |
+| 14 | [phase-14-catalog-scheduler](phase-14-catalog-scheduler/README.md) | 后台定时刷新（5h + leader 选主） |
+| 15 | [phase-15-apkmirror-source](phase-15-apkmirror-source/README.md) | APKMirror 采集器 + 纯下载 provider + .apkm 解包（二期） |
+
 ## 推进顺序
 
 实际开发按下面顺序走：
 
 ```text
 框架 -> 领域/API/fallback -> 公共下载/XAPK -> Aptoide -> APKPure signed -> APKPure proto -> Google Play -> APKPure web -> 部署收尾
+```
+
+版本目录 v2 在上面 9 个阶段之后推进，内部按依赖串行：
+
+```text
+目录基座(10) -> 采集器/刷新(11) -> 编排器/provider 纯下载(12) -> 对外接口(13) -> 定时刷新(14) -> APKMirror 源(15, 二期)
 ```
 
 每个阶段完成前只做本阶段必需能力。发现“以后可能要”的能力，先记在阶段文档的非目标里，等真实需要再加。
