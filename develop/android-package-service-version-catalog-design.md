@@ -36,6 +36,15 @@
 - 不做暴力枚举 versionCode 作为发现手段（见 §8）。
 - 不追求对所有 app 都 100% 历史完整（受上游覆盖限制，尽力而为 + 可观测「缺哪些」）。
 
+> **重要：分层目标（由 §14 实测倒逼）。** 实测发现下载源（APKPure/Aptoide）**只保留近期版本**，
+> 深历史拿不到。因此目录必须区分两层、对外也要分开表达：
+>
+> - **「已知版本」(known)**：曾经发布过哪些版本名/日期——AppMagic 时间线最全，用于展示/审计/监控。
+> - **「可下载版本」(downloadable)**：当前真能拿到 code/文件的子集——只是近期窗口（APKPure ∪ Aptoide）。
+>
+> 对长生命周期、版本多的 app，downloadable 可能只占 known 的一小部分（实测某 app 仅 12%）。
+> 这是**上游数据可得性的硬墙**，任何 catalog 设计都补不回来——能做的是**面向未来主动归档**（见 §11）。
+
 ## 3. 核心设计决策
 
 ### 3.1 versionName 为主键，versionCode 是「各取所需」的增强字段
@@ -58,6 +67,9 @@
 一个变体。因此目录里一个 entry 的 `versionCodes` 是**一组**，Google 下载时还要按设备 profile 选合适的
 那个。这是 Google 历史下载只能「尽力而为」的根因之一。
 
+> 旁证：AppMagic 对 `com.vitastudio.mahjong` 返回的 178 条「发布事件」里只有 102 个不同 versionName，
+> 同名最多重复 5 次（日期不同），正是分批/重发的体现（见 §7）。
+
 ## 4. 数据模型（草案）
 
 ```text
@@ -65,9 +77,10 @@ VersionCatalog(packageName)        # 按包聚合
   entries: [CatalogEntry...]       # 按 versionName 去重合并，按发布时间/版本号排序
 
 CatalogEntry
-  versionName: str                 # 主键
+  versionName: str                 # 主键（多源、AppMagic 的「发布事件」都按它去重）
   versionCodes: list[int]          # 来自带 code 的源 + 名↔号账本；可能为空（只有名）
-  releaseDate: date | None         # 多源对齐的二级键
+  firstReleaseDate: date | None    # 多源对齐的二级键；AppMagic 同名多事件取首/末
+  lastReleaseDate: date | None     # 灰度/重发的末次观测日期
   sources: {                       # provenance：哪个源提供了什么，provider 各取所需
     apkpure:    {downloadable, apkid, downloadPageUrl} | None
     aptoide:    {appId, md5} | None
@@ -117,23 +130,38 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 | APKPure proto | `m/v3/cms/app_version` | ✅ | 待确认 | 部分 | protobuf 解析脆弱 |
 | Aptoide | `app/get` 的 `versions` | ✅ | ✅（+app_id/md5） | 部分 | 较稳 |
 | Google Play | gpapi `details` | 仅最新 | 仅最新；delivery 按 vc | 不可枚举 | 需 Aurora token + 代理 |
-| **AppMagic** | `POST .../app-info/releases` | ✅**最全** | ❌ | **最全** | Cloudflare + 账号 cookie，运维重 |
+| **AppMagic** | `POST .../app-info/releases` | ✅ + release_date | ❌ | 较广（仍有缺口） | Cloudflare + 账号 cookie，运维重；返回的是「发布事件」需按名去重 |
 | APKMirror（候选） | 抓网页 | ✅ | ✅（含变体） | 较全 | Cloudflare，待评估 |
 | 名↔号账本（自产） | 下载后解析 manifest | ✅ | ✅ | 随使用增长 | 零请求，最可靠 |
 
 > proto 是否带 code、APKMirror 是否纳入，标为待确认/待评估，落地前各抓一个样本核实。
 
-## 7. AppMagic 接入：当「名单完整性」源，不当 code 源
+## 7. AppMagic 接入：当「版本名时间线」源，不当 code 源
 
 - 接口：`POST https://appmagic.rocks/api/v2/applications/app-info/releases`，
-  body `{"country":"US","store":1,"storeApplicationID":"<pkg>"}`（`store:1` 推断为 Google Play）。
+  body `{"country":"US","store":1,"storeApplicationID":"<pkg>"}`（`store:1` = Google Play，已由 referer 确认）。
+- **响应 schema（已用 `com.vitastudio.mahjong` 实测）**：
+
+  ```json
+  { "releases": [ { "release_date": "2024-03-22", "version": "1.6.0", "release_notes": "" }, ... ] }
+  ```
+
+  即每项只有 `release_date` + `version`(versionName) + `release_notes`。**确认没有 versionCode、没有内部 id**；
+  `release_notes` 实测为空，不可依赖。
+- **关键发现：`releases` 是「发布事件」不是「去重版本」**。实测 178 条事件里只有 **102 个不同 versionName**，
+  57 个名字重复（最多同名出现 5 次，日期不同）——典型的**分批/灰度发布**或多次被观测。因此：
+  - 入目录前必须**按 versionName 去重**，保留 `[首次, 末次]` 发布日期区间。
+  - 同名多事件也**侧面印证 §3.2 的一对多**：同名可能伴随多个 versionCode（同名重发会 bump code）。
+- **完整性要打折**：版本号序列有跳变（实测缺 `1.3.x`、`1.7.0`、`1.13`–`2.0`、`2.3`、`2.23` 等），
+  说明 AppMagic **也不是全集**（未上架 Google Play 或其未收录）。所以定位从「最全名单」修正为
+  「**覆盖较广的名单源，仍需多源并集补全**」。
+- **`release_date` 可用作多源对齐的二级键**（已确认有日期）：与带 code 的源（APKPure/Aptoide，若也带日期）
+  按 `versionName + 邻近日期` 对齐，解决同名多条时的匹配。
 - **风险（必须正视）**：请求依赖 `cf_clearance`（Cloudflare 过墙 cookie）+ `dashly_auth_token`
   （登录态）。即「**既要过 Cloudflare 又要带账号会话**」，cookie 会过期、token 绑账号。稳定接入需要
   带登录的 Playwright 会话或维护 cookie 池——这是**持续运维成本**，因此列为**二期**。
-- **待确认**：抓一份完整响应，确认是否带 release date / 内部 release id；**日期可作多源对齐的二级键**
-  （name 对不齐时按日期兜），即使没有 vc 也有价值。
-- **定位**：AppMagic 回答「**有哪些版本名**」，真正下载与配号交给 APKPure/Aptoide/账本。降级：
-  AppMagic 不可用时退回各下载源自带的版本列表，只是名单可能不全。
+- **定位**：AppMagic 回答「**有哪些版本名、大致什么时候发的**」，真正下载与配号交给 APKPure/Aptoide/账本。
+  降级：AppMagic 不可用时退回各下载源自带的版本列表，只是名单可能更不全。
 
 ## 8. 暴力枚举 versionCode 的定位：不做发现，只留存在性探针
 
@@ -169,10 +197,19 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 
 ## 11. 分期落地建议
 
-1. **一期（确定收益、零封号）**：定义 catalog 接口 + 名↔号账本 + 下载后回填钩子；把现有 APKPure/Aptoide
-   版本逻辑收敛成 catalog 源适配器；多源 join。
-2. **二期**：接 AppMagic 名单源（解决 Cloudflare+cookie 运维）；评估 APKMirror。
+1. **一期（确定收益、零封号）**：定义 catalog 接口（known / downloadable 两层）+ 名↔号账本 +
+   下载后回填钩子；把现有 APKPure/Aptoide 版本逻辑收敛成 catalog 源适配器；多源 join。
+2. **二期**：接 AppMagic 时间线源（解决 Cloudflare+cookie 运维），主要补 **known** 层；评估 APKMirror
+   是否能补 **downloadable** 的深度。
 3. **三期（可选）**：存在性探针、按设备 profile 选 vc 等精细化。
+
+### 11.1 主动归档（深历史的唯一可靠出路）
+
+实测表明上游会**裁剪旧版本**（§14），深历史「现在不存、以后更没」。所以真正能积累历史的办法是
+**面向未来主动归档**：监控发现新版本时**当即下载并入库**（趁它还在商店），把 NAS artifact 存储
+当成**自己的版本档案馆**，按 `{package}/{versionName}/{versionCode}` 永久留存。配合 §5-B 的账本，
+服务用得越久，自己掌握的可下载历史越深——这是唯一不依赖上游保留策略的路径。
+（与现有「下载即落 NAS」天然契合，只需加「发现即抓取」的触发。）
 
 ## 12. 开放问题
 
@@ -189,3 +226,37 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 - 缓存：catalog TTL 失效刷新；账本永不过期。
 - 降级：AppMagic / 某源不可用时退回其他源。
 - 各 provider 用各自的键下载（mock 各源）。
+
+## 14. 实测验证：多源 join 覆盖率（com.vitastudio.mahjong）
+
+用代理实跑了一次三路 join，结论很硬：**「多源 join 配 code/下载历史」对深历史基本无效**——因为带 code
+的下载源只保留近期版本。
+
+| 源 | 版本数 | 范围 | 性质 |
+| --- | --- | --- | --- |
+| AppMagic | 102（去重） | 1.1.0 .. 3.25.0 | 全名单（含日期） |
+| APKPure `/versions` | 25 | 2.41.1 + 3.1.0 .. 3.26.0 | 只近期 |
+| Aptoide | **3** | 3.24.1 .. 3.26.0 | 极浅，只最新几个 |
+
+- **AppMagic 的 102 个名里，(APKPure ∪ Aptoide) 能配 code/下载的只有 13 个 = 12%**；Aptoide 命中 2
+  个且都在 APKPure 范围内，**净增 0**。
+- **89 个名（全部 1.x/2.x）属于 known-only**：知道名字和日期，但**没有任何源能给 code 或文件**。
+- 还有 12 个版本是 APKPure 有、AppMagic 漏（如 3.10.1/3.12.0/3.12.1…），印证**没有单一源是全集**，
+  并集（114）才接近真相——但「并集变大」主要长的是 **known**，不是 downloadable。
+
+衍生观察：
+
+- **APKPure 留存近似「最近 N 个」**：版本少的 app（如 meowdoku 共 10 个）全有；版本多的 app（vita-mahjong
+  100+）只剩近 25。**app 历史越长，downloadable 占比越低。**
+- **源给的 code 也可能脏**：APKPure 把 `2.41.1` 标成 versionCode `89`（与 3.x 的 1400–1772 完全不连续），
+  疑似错标/异变体——**佐证账本应以「实下 APK 的 manifest」为权威**，对源 code 做单调性 sanity check。
+
+设计含义（已回写 §2/§7/§11）：
+
+1. 目录必须**分 known / downloadable 两层**并分开对外表达，别让用户以为「列出来 = 能下」。
+2. AppMagic 的价值是**时间线/监控/审计**，不是历史下载 enabler。
+3. 深历史唯一可靠出路是**主动归档**（§11.1）：趁版本还在商店时下载入库，服务自建档案馆。
+4. name→code join 的真正用武之地很窄（近期窗口），而那里 APKPure 本来就同时给名和号。
+
+> 复算方式：取 AppMagic releases 去重得名集；APKPure 走 `apkpure_versions.list_versions`、Aptoide 走
+> `AptoideProvider.get_package_info().versions`，按 versionName 求交/并集。脚本为一次性验证，未入库。
