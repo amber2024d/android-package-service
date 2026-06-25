@@ -1,5 +1,6 @@
 import asyncio
 import sqlite3
+import time
 from contextlib import closing
 from pathlib import Path
 from typing import ClassVar
@@ -89,11 +90,25 @@ class CatalogStore:
         key = str(self.db_path)
         if key in self._initialized:
             return
-        with closing(self.connect()) as conn:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.executescript(SCHEMA)
-            self._migrate(conn)
-        self._initialized.add(key)
+        # 多 worker 冷启动会同时初始化同一个新库。`PRAGMA journal_mode=WAL` 的模式切换需要短暂独占锁，
+        # 且**不走 busy_timeout**（SQLite 直接返回 SQLITE_BUSY），并发时一个 worker 会拿到 "database is locked"。
+        # 这里对建库重试若干次：等先到的 worker 建好 WAL+表后，其余 worker 立刻成功。
+        last_error: sqlite3.OperationalError | None = None
+        for attempt in range(15):
+            try:
+                with closing(self.connect()) as conn:
+                    conn.execute("PRAGMA journal_mode=WAL")
+                    conn.executescript(SCHEMA)
+                    self._migrate(conn)
+                self._initialized.add(key)
+                return
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower():
+                    raise
+                last_error = exc
+                time.sleep(0.1 * (attempt + 1))
+        if last_error is not None:
+            raise last_error
 
     def _migrate(self, conn: sqlite3.Connection) -> None:
         existing = {row[1] for row in conn.execute("PRAGMA table_info(collection_state)")}
