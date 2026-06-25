@@ -96,6 +96,10 @@ collection_state(                           -- 驱动「全量 vs 增量」
 
 ### D. 动态刷新（全量 / 增量）
 
+> **落地（阶段 11，2026-06-25）**：`VersionCatalog.ensure_collected`（`app/catalog/catalog.py`）已实现首访全量 /
+> 复访增量 + TTL 门（`CATALOG_COLLECT_TTL_HOURS`，默认 6h）。APKPure/Aptoide 一次返回全集，`collect_recent`
+> 退化为全量、stop-on-known 由聚合层按 versionName 去重达成；翻页式 stop-on-known 待 APKMirror（阶段 15）。
+
 `ensure_collected(package, *, need_history)`：
 
 1. 读 `collection_state`。
@@ -164,7 +168,17 @@ collection_state(                           -- 驱动「全量 vs 增量」
 > 这是纯**服务内**的后台任务（FastAPI 启动起一个调度器 / 或独立 worker 容器），不是外部 cron，也与
 > Claude Code 的定时 agent 无关。落地时在 [部署设计](android-package-service-deployment.md) 补调度器的承载方式。
 
+> **落地（阶段 11）**：§F 的「采集器（枚举→目录）」列已实现 APKPure / Aptoide 两源（`app/catalog/collectors/`）。
+> APKPure 复用 `apkpure_versions` 工具，Aptoide 自带精简 `app/get` 抓取；各源稳定下载键写入 `version_sources.download_key`。
+> APKMirror / AppMagic / 账本列分别在阶段 15 / 二期 / 阶段 10 落地。**provider 退化为纯下载器在阶段 12**——本阶段
+> provider 下载路径未变。
+
 ### H. 下载触发的后台收集与单飞去重（决策②）
+
+> **落地（阶段 11）**：§H ② 的「收集单飞」已实现——进程内 `dict[(db,package), asyncio.Task]` 复用 +
+> 跨 worker `collection_state` 租约（`collecting_owner`/`collecting_since`/`lease_expires`，`BEGIN IMMEDIATE` 抢、
+> 带超时重抢，`CATALOG_COLLECTION_LEASE_SECONDS` 默认 600s）。§H ① 的「下载单飞」复用 §10 既有下载锁；
+> 下载触发收集的 fire-and-forget 接线在阶段 12。
 
 `/download` 命中未收集包 / 未知版本时：**直接尝试下载**（§B），**并发**起一个该包的目录收集任务。两条路各自单飞，
 互不阻塞。要防三种重复：

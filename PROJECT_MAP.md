@@ -16,9 +16,13 @@
   `apkpure-signed` 和 `apkpure-web` 的历史版本能力都走它。（后续 versions 获取重构主要动这里。）
 - `app/download/`：artifact 复用、`.part` 落盘、校验、XAPK 打包；`PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
   下载成功后挂 `_backfill_ledger` 旁路钩子，解析产物 manifest 回填版本目录账本（失败隔离，不影响下载）。
-- `app/catalog/`：版本目录（阶段 10+）持久层。`store.py`（SQLite 单库四表 + WAL + per-package 写锁）、
+- `app/catalog/`：版本目录持久层 + 枚举层。`store.py`（SQLite 单库四表 + WAL + per-package 写锁 + 租约列迁移）、
   `ledger.py`（名↔号账本，append-only 幂等 + 反序 sanity warning）、`manifest.py`（产物 → `(name, code)`：
-  XAPK `manifest.json` / `.apkm` `info.json` 直读 + 裸 APK 自带极简 AXML 解析）。源采集器/编排器/对外接口/定时刷新见阶段 11–14。
+  XAPK `manifest.json` / `.apkm` `info.json` 直读 + 裸 APK 自带极简 AXML 解析）。
+- `app/catalog/collectors/`（阶段 11）：各源版本采集器（`apkpure` 复用 `apkpure_versions`、`aptoide` 自带 `app/get`），
+  产出 `VersionRecord`（name + 可选 code + 该源稳定下载键）。
+- `app/catalog/catalog.py`（阶段 11）：`VersionCatalog.ensure_collected` 唯一枚举入口——首访全量/复访增量+TTL、
+  聚合 upsert `versions`/`version_sources`、收集单飞（进程内 task + 跨 worker SQLite 租约）。编排器/对外接口/定时刷新见阶段 12–14。
 - `app/utils/`：文件名、hash、ZIP 小工具。
 
 ## 运行配置

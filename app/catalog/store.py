@@ -43,9 +43,15 @@ CREATE TABLE IF NOT EXISTS collection_state (
     package TEXT PRIMARY KEY,
     last_full_at TEXT,
     last_refresh_at TEXT,
-    source_cursors TEXT
+    source_cursors TEXT,
+    collecting_owner TEXT,   -- 跨 worker 收集租约（§H）：当前持有者、起始时间、过期时间
+    collecting_since TEXT,
+    lease_expires TEXT
 );
 """
+
+# 阶段 10 建的旧库 collection_state 没有租约列；幂等补列，不丢数据。
+_COLLECTION_STATE_LEASE_COLUMNS = ("collecting_owner", "collecting_since", "lease_expires")
 
 
 class CatalogStore:
@@ -79,7 +85,14 @@ class CatalogStore:
         with closing(self.connect()) as conn:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.executescript(SCHEMA)
+            self._migrate(conn)
         self._initialized.add(key)
+
+    def _migrate(self, conn: sqlite3.Connection) -> None:
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(collection_state)")}
+        for column in _COLLECTION_STATE_LEASE_COLUMNS:
+            if column not in existing:
+                conn.execute(f"ALTER TABLE collection_state ADD COLUMN {column} TEXT")
 
     def write_lock(self, package: str) -> asyncio.Lock:
         key = (str(self.db_path), package)

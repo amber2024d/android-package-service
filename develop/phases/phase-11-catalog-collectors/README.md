@@ -61,7 +61,20 @@ app/providers/apkpure_versions.py     # list_versions 归位为采集器复用�
 
 ## 当前状态
 
-- 未开始。依赖阶段 10 的 `store`。
+- **已完成（2026-06-25）**。依赖阶段 10 的 `store`。
+- 落地：`app/catalog/collectors/`（`base` 的 `Collector`/`VersionRecord`；`apkpure` 复用
+  `apkpure_versions` 工具；`aptoide` 自带精简 `app/get` 抓取解析）+ `app/catalog/catalog.py`
+  的 `VersionCatalog`（`ensure_collected` 首访全量/复访增量+TTL、聚合 upsert `versions`/`version_sources`、
+  进程内 task 单飞 + 跨 worker SQLite 租约）。
+- store：`collection_state` 加 `collecting_owner`/`collecting_since`/`lease_expires` 三列 + 幂等 ALTER 迁移旧库。
+- config：`CATALOG_COLLECT_TTL_HOURS`（默认 6）、`CATALOG_COLLECTION_LEASE_SECONDS`（默认 600）。
+- **决策/取舍**：APKPure `/versions`、Aptoide `app/get` 都一次返回全集，无需翻页，`collect_recent`
+  默认退化为 `collect`，stop-on-known 由聚合层按 `versionName` 去重达成（真正的翻页 stop-on-known 留给阶段 15 APKMirror）。
+  本阶段**未改 provider 下载路径**——采集器复用共享工具/自带抓取，provider 仍各自枚举用于下载（退化在阶段 12），
+  `apkpure_versions.py` 按「provider 不再直接调」是阶段 12 目标，本阶段仅新增复用、不删 provider 调用。
+- 测试：`tests/catalog/test_collectors_apkpure.py` / `test_collectors_aptoide.py` / `test_catalog.py`
+  共 10 个（解析含缺 code/脏数据、聚合 merge/provenance、全量/增量/TTL、单飞、跨 worker 租约抢占+超时重抢、单源失败隔离）。
+  全量 111 passed；旧库租约列迁移已单独验证。
 
 ## 本阶段不做
 

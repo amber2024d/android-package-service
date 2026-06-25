@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     # 下载成功后回填账本是纯旁路；关掉只是停止积累，不影响下载本身。
     catalog_backfill_enabled: bool = True
 
+    # 版本目录采集（阶段 11+）：按需收集的 TTL 门（复访超过才增量刷新；定时刷新为主，见阶段 14）；
+    # 收集租约时长（跨 worker 单飞，防 worker 崩溃后永久占用，超时他人可重抢）。
+    catalog_collect_ttl_hours: float = 6.0
+    catalog_collection_lease_seconds: int = 600
+
     # APKPure / Google Play 系 provider 的上游代理；CDN 被 Cloudflare 拦或本机出口受限时配置。
     # 格式 http://USER:PASS@HOST:PORT（HTTP/HTTPS 代理，SOCKS5 不支持，Chromium 无法用带鉴权的 SOCKS5）。
     # 留空则直连。配置后这些 provider 的全部上游流量统一走该代理：
