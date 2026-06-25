@@ -40,6 +40,10 @@
 
 ### B. 对外接口
 
+> **落地（阶段 13）**：实现为 `GET /api/v1/android/apps/{packageName}/versions`（沿用既有 `/apps/{pkg}/...` 路径约定）。
+> 已跟踪包直接读库、首采阻塞一次（`ensure_collected(need_history=False)`，不在读路径触发刷新）。
+> `/download` 指定版本 fire-and-forget 触发收集（决策②/§H），最新版快路径不触发。
+
 **`GET /versions?package=...`** → 只列 downloadable 版本（决策①）：
 
 ```json

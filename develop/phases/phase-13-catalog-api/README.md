@@ -47,7 +47,17 @@ tests/test_api_catalog.py
 
 ## 当前状态
 
-- 未开始。依赖阶段 11（ensure_collected）+ 阶段 12（编排器）。
+- **已完成（2026-06-25）**。依赖阶段 11（ensure_collected）+ 阶段 12（编排器）。
+- 落地：`GET /api/v1/android/apps/{packageName}/versions`（路径用既有 `/apps/{pkg}/...` 约定，
+  设计 §B 的 `/versions?package=` 是记法）——`await ensure_collected(need_history=False)`（首采阻塞一次、
+  已跟踪直接读库、不在读路径触发增量刷新），再 `catalog.list_downloadable` 只出 `downloadable=1`、按版本号降序。
+  `/download` 指定版本时 `_spawn_background(ensure_collected(need_history=True))` fire-and-forget 触发收集
+  （保强引用 + 完成回收 + 异常记 `catalog_collect_failed`），最新版不触发。`CatalogVersion`/`CatalogVersionsResponse`
+  入 `domain/models.py`，`get_catalog` 依赖按 provider 开关装配采集器。
+- 测试：`tests/test_api_catalog.py` 6 个（只出 downloadable 且降序、known-only 不出、首采阻塞一次 + 复查读库、
+  空目录返回空、指定版本触发后台收集、最新不触发、同版本复用 artifact）。全量 127 passed。
+- 顺延仍在：阶段 12 的 provider 接口收敛——现在目录预热（下载即触发收集）已具备，可在后续把 provider
+  下载路径的按需枚举改为优先用目录补全后的键，再移除冷目录回归风险。
 
 ## 本阶段不做
 

@@ -9,7 +9,8 @@
 
 ## 模块边界
 
-- `app/api/`：请求解析、错误响应、文件响应；不写 provider 特例和下载细节。
+- `app/api/`：请求解析、错误响应、文件响应；不写 provider 特例和下载细节。`/apps/{pkg}/versions`（阶段 13）
+  走版本目录只出 downloadable；`/download` 经编排器，指定版本时 fire-and-forget 触发后台收集（`_spawn_background`）。
 - `app/domain/`：跨 API、provider、下载层共享的模型和错误类型。
 - `app/providers/`：上游来源适配，只产出 `AndroidPackageInfo` 和 `DownloadPlan`。
 - `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取/版本目录工具（非独立 provider），

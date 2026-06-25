@@ -79,3 +79,13 @@ class DownloadPlan(ApiModel):
     @property
     def version_key(self) -> str:
         return str(self.version_code or self.version_name or "latest")
+
+
+class CatalogVersion(ApiModel):
+    version_name: str
+    version_code: int | None = None
+
+
+class CatalogVersionsResponse(ApiModel):
+    package_name: str
+    versions: list[CatalogVersion] = Field(default_factory=list)

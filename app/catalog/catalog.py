@@ -10,6 +10,7 @@ from sqlite3 import Connection
 from typing import ClassVar
 
 from app.catalog.collectors.base import Collector, VersionRecord
+from app.catalog.ledger import version_sort_key
 from app.catalog.store import CatalogStore
 
 logger = logging.getLogger(__name__)
@@ -79,6 +80,19 @@ class VersionCatalog:
         finally:
             if self._inflight.get(key) is task:
                 self._inflight.pop(key, None)
+
+    def list_downloadable(self, package: str) -> list[tuple[str, int | None]]:
+        """对外 `/versions` 的数据源：只出 `downloadable=1` 的 `(versionName, versionCode)`，按版本号降序（最新在前）。
+
+        known-only（`downloadable=0`）不出（§B 决策①）。纯读库，不触发收集/刷新。
+        """
+        with closing(self.store.connect()) as conn:
+            rows = conn.execute(
+                "SELECT version_name, version_code FROM versions WHERE package = ? AND downloadable = 1",
+                (package,),
+            ).fetchall()
+        rows.sort(key=lambda row: version_sort_key(row[0]), reverse=True)
+        return [(name, code) for name, code in rows]
 
     # ---- 决策：要不要收集 ----------------------------------------------------- #
 

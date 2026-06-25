@@ -66,6 +66,33 @@ provider    可选，String，强制指定来源；默认 auto
 }
 ```
 
+## 查询可下载版本目录（阶段 13）
+
+```http
+GET /api/v1/android/apps/{packageName}/versions
+```
+
+由版本目录（多源聚合）回答「这个包**当前能下到**哪些版本」，**只出 downloadable**——known-only（只知道发布过、
+无源可下、常无 code）不进本接口，避免「列出来 = 能下」的误解。
+
+规则：
+
+- 已跟踪的包**直接读库返回**，响应不被收集/刷新拖慢；从没采过的包会**首次同步收集一次**后返回。
+- 新鲜度由后台定时刷新保证（阶段 14），读路径不在请求里触发增量刷新。
+- 与 provider 查询的 `versions` 字段不同：本接口是跨源聚合后的「可下载版本」，按版本号降序。
+
+返回示例：
+
+```json
+{
+  "packageName": "com.vitastudio.mahjong",
+  "versions": [
+    { "versionName": "3.26.0", "versionCode": 1772 },
+    { "versionName": "2.9.0", "versionCode": 33 }
+  ]
+}
+```
+
 ## 下载最终安装包
 
 ```http
@@ -79,6 +106,13 @@ versionCode 可选
 versionName 可选
 provider    可选，默认 auto
 ```
+
+规则（阶段 12 / 13）：
+
+- 经下载编排器：先用账本/目录补全 `name↔code`（有就用、查不到不阻塞），再按 provider 优先级 fallback。
+- **指定版本**时先直接尝试下载，同时**后台异步补目录**（fire-and-forget，与下载并发、不阻塞响应；同包收集单飞去重）。
+- **不传版本=最新版**走快路径，不触发目录收集。
+- 「按名」「按号」指向同一版本的并发请求归一到同一把下载锁，只下一次、复用 artifact。
 
 返回：
 
