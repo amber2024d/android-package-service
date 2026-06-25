@@ -125,6 +125,32 @@ def test_factory_registers_web_provider_when_enabled(tmp_path):
     assert list(ProviderFactory(settings).providers) == ["apkpure-web"]
 
 
+def test_factory_propagates_upstream_proxy(tmp_path):
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        temp_dir=tmp_path / "tmp",
+        nas_mount_path=tmp_path / "nas",
+        provider_fake_enabled=False,
+        provider_fake_failing_enabled=False,
+        provider_apkpure_signed_enabled=True,
+        provider_google_play_enabled=True,
+        provider_aptoide_enabled=False,
+        provider_apkpure_proto_enabled=False,
+        provider_apkpure_web_enabled=True,
+        upstream_proxy="http://user:pass@host:3128",
+    )
+
+    factory = ProviderFactory(settings)
+
+    assert factory.providers["apkpure-web"].proxy == "http://user:pass@host:3128"
+    assert factory.providers["apkpure-signed"].proxy == "http://user:pass@host:3128"
+    assert factory.providers["google-play"].proxy == "http://user:pass@host:3128"
+    assert factory.providers["google-play"]._proxies_config() == {
+        "http": "http://user:pass@host:3128",
+        "https": "http://user:pass@host:3128",
+    }
+
+
 def _run(awaitable):
     return asyncio.run(awaitable)
 

@@ -1,6 +1,7 @@
 import asyncio
 import ipaddress
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -76,7 +77,7 @@ class PackageDownloader:
         urls = [package_file.source_url or package_file.url, *package_file.fallback_urls]
         for url in urls:
             try:
-                await self._download_url(url, part, package_file.headers)
+                await self._download_url(url, part, package_file.headers, proxy=package_file.proxy)
                 return
             except Exception as exc:
                 if part.exists():
@@ -84,7 +85,7 @@ class PackageDownloader:
                 errors.append(str(exc))
                 if package_file.metadata.get("download.fallback") == "wget":
                     try:
-                        self._download_url_with_wget(url, part, package_file.headers)
+                        self._download_url_with_wget(url, part, package_file.headers, proxy=package_file.proxy)
                         return
                     except Exception as wget_exc:
                         if part.exists():
@@ -92,8 +93,9 @@ class PackageDownloader:
                         errors.append(str(wget_exc))
         self._fail(provider, "; ".join(errors) or f"Download failed for {package_file.name}")
 
-    async def _download_url(self, url: str, part: Path, headers: dict[str, str] | None = None) -> None:
-        self._validate_url(url)
+    async def _download_url(self, url: str, part: Path, headers: dict[str, str] | None = None, proxy: str | None = None) -> None:
+        via_proxy = bool(proxy)
+        self._validate_url(url, via_proxy=via_proxy)
         total = 0
         request_headers = {"User-Agent": self.settings.http_user_agent, **(headers or {})}
         async with httpx.AsyncClient(
@@ -103,10 +105,11 @@ class PackageDownloader:
                 connect=self.settings.download_connect_timeout_seconds,
             ),
             headers=request_headers,
+            proxy=proxy,
         ) as client:
             async with client.stream("GET", url) as response:
                 response.raise_for_status()
-                self._validate_url(str(response.url))
+                self._validate_url(str(response.url), via_proxy=via_proxy)
                 with part.open("wb") as file:
                     async for chunk in response.aiter_bytes():
                         total += len(chunk)
@@ -114,8 +117,8 @@ class PackageDownloader:
                             raise ValueError("Downloaded file exceeds configured limit.")
                         file.write(chunk)
 
-    def _download_url_with_wget(self, url: str, part: Path, headers: dict[str, str]) -> None:
-        self._validate_url(url)
+    def _download_url_with_wget(self, url: str, part: Path, headers: dict[str, str], proxy: str | None = None) -> None:
+        self._validate_url(url, via_proxy=bool(proxy))
         if not shutil.which("wget"):
             raise RuntimeError("wget is not available.")
         command = [
@@ -135,7 +138,12 @@ class PackageDownloader:
             else:
                 command.append(f"--header={key}: {value}")
         command.append(url)
-        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        env = dict(os.environ)
+        if proxy:
+            # wget 不支持 SOCKS5；HTTP/HTTPS 代理通过 http_proxy/https_proxy 环境变量生效。
+            env["http_proxy"] = proxy
+            env["https_proxy"] = proxy
+        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
         if part.stat().st_size > self.settings.download_max_file_bytes:
             raise ValueError("Downloaded file exceeds configured limit.")
 
@@ -159,12 +167,16 @@ class PackageDownloader:
         self.verifier.verify_artifact(artifact, plan)
         return artifact
 
-    def _validate_url(self, url: str) -> None:
+    def _validate_url(self, url: str, via_proxy: bool = False) -> None:
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
             raise ValueError("Only http and https download URLs are allowed.")
         if not parsed.hostname:
             raise ValueError("Download URL host is missing.")
+        if via_proxy:
+            # 走显式上游代理时，实际连接到的是代理主机，本地对目标主机的 DNS 解析不参与连接，
+            # 这里的 SSRF IP 校验对它无意义（且会被代理环境的假 IP 段误伤），跳过。
+            return
         for info in socket.getaddrinfo(parsed.hostname, None):
             address = ipaddress.ip_address(info[4][0])
             if (

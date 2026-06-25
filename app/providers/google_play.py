@@ -84,12 +84,19 @@ class GooglePlayProvider(AndroidPackageProvider):
         timeout_seconds: float = 120.0,
         cache_dir: Path = Path("data/cache"),
         dispenser_url: str = DISPENSER_URL,
+        proxy: str | None = None,
     ):
         self.priority = priority
         self.enabled = enabled
         self.timeout_seconds = timeout_seconds
         self.cache_dir = cache_dir
         self.dispenser_url = dispenser_url
+        # 配置后整条 Google Play 链路（Aurora 取 token、gpapi 的 checkin/details/delivery、
+        # 以及 CDN 文件下载）统一走该代理。Aurora dispenser 被 Cloudflare 拦 403 时尤其需要。
+        self.proxy = proxy
+
+    def _proxies_config(self) -> dict[str, str] | None:
+        return {"http": self.proxy, "https": self.proxy} if self.proxy else None
 
     async def get_package_info(self, request: AndroidPackageRequest) -> AndroidPackageInfo:
         details = await self._gp_call(lambda api: api.details(request.package_name))
@@ -166,7 +173,9 @@ class GooglePlayProvider(AndroidPackageProvider):
 
         self._patch_gpapi()
         token = await self._token(force_refresh=force_refresh)
-        api = GooglePlayAPI(locale=LOCALE, timezone=TIMEZONE, device_codename=DEVICE_CODENAME)
+        api = GooglePlayAPI(
+            locale=LOCALE, timezone=TIMEZONE, device_codename=DEVICE_CODENAME, proxies_config=self._proxies_config()
+        )
         api.gsfId = api.checkin(token.email, token.oauth)
         api.setAuthSubToken(token.oauth)
         try:
@@ -182,7 +191,7 @@ class GooglePlayProvider(AndroidPackageProvider):
                 return cached
 
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout_seconds, connect=30.0)) as client:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(self.timeout_seconds, connect=30.0), proxy=self.proxy) as client:
                 response = await client.get(self.dispenser_url, headers={"User-Agent": DISPENSER_UA, "Accept": "*/*"})
                 response.raise_for_status()
                 payload = response.json()
@@ -360,6 +369,7 @@ class GooglePlayProvider(AndroidPackageProvider):
             source_url=url if source_type == "url" else None,
             source_path=source_path,
             headers=headers,
+            proxy=None if source_type == "local" else self.proxy,
             size=self._int(raw.get("total_size") or raw.get("size")),
             sha1=self._hash(raw.get("sha1"), 20),
             sha256=self._hash(raw.get("sha256"), 32),

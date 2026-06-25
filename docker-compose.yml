@@ -30,6 +30,7 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
+      UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
       - app_data:/app/data

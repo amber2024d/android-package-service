@@ -86,6 +86,13 @@ ALL_PROXY=socks5://host.docker.internal:7890
 
 Linux 服务器可把 `host.docker.internal` 换成宿主机网关 IP。
 
+APKPure CDN 被 Cloudflare 拦或本机出口受限时，给 `apkpure-signed` / `apkpure-web`
+单独配置上游代理（HTTP/HTTPS，含鉴权，**不支持 SOCKS5**）：
+
+```text
+UPSTREAM_PROXY=http://USER:PASS@HOST:PORT
+```
+
 ## Smoke
 
 启动服务后运行：

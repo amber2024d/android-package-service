@@ -92,6 +92,7 @@ android-package-service/
       apkpure_signed.py
       apkpure_proto.py
       apkpure_web.py
+      apkpure_versions.py   # 共享：APKPure 网页版本目录与抓取工具，apkpure-signed/apkpure-web 复用
       google_play.py
     download/
       downloader.py
@@ -118,9 +119,14 @@ android-package-service/
 | --- | --- | --- |
 | `google-play` | Aurora dispenser + Python `gpapi` | Google Play 详情、已知 versionCode 下载、base/split/OBB/patch 文件列表 |
 | `aptoide` | Aptoide V7 API | 最新版、历史版本、base APK、AAB splits、OBB、md5 校验 |
-| `apkpure-signed` | `tapi.pureapk.com/v3/get_app_detail` | 最新版信息、APK/XAPK 下载 URL、size/sha1 校验 |
+| `apkpure-signed` | `tapi.pureapk.com/v3/get_app_detail`（+ 网页版本目录兜底） | 最新版信息、APK/XAPK 下载；非最新 versionCode/versionName 回退到共享网页版本目录 |
 | `apkpure-proto` | `api.pureapk.com/m/v3/cms/app_version` | 历史版本名列表、按 versionName 获取 APK/XAPK |
-| `apkpure-web` | APKPure 网页 + Playwright | 搜索、详情页、下载页、CDN 兜底 |
+| `apkpure-web` | APKPure 网页 + Playwright | 搜索、详情页、下载页、CDN；历史版本走共享版本目录 |
+
+> 历史版本说明：`apkpure-signed` 的签名 API 只返回最新版，历史版本能力由 `apkpure_versions.py`
+> 共享模块提供（抓 `/versions` 列表 + 各版本下载页预签名 CDN 链接），`apkpure-web` 也复用它。
+> APKPure CDN / Aurora dispenser 被 Cloudflare 拦或本机出口受限时，配置 `UPSTREAM_PROXY`
+> 让 apkpure 系与 google-play 的上游流量走代理（详见 providers / deployment 文档）。
 
 默认优先级建议：
 

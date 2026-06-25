@@ -178,10 +178,12 @@
 - mock：`asset.type=APKS`
 - 预期：输出单 `APKS`，下载层按 `.apks` 返回
 
-### T209 APKPure signed 指定版本不匹配
+### T209 APKPure signed 历史版本回退
 
 - 输入：指定非最新版 `versionCode` 或 `versionName`
-- 预期：返回 `UNSUPPORTED`
+- mock：`_web_versions` 返回版本目录、`apkpure_versions.resolve_version_file` 返回 `PackageFile`
+- 预期：回退到共享网页版本目录，命中目标版本并返回下载计划；命中不到返回 `NOT_FOUND`
+- 备注：签名 API 只返回最新版，历史版本由 `apkpure_versions.py` 提供（见 T217）
 
 ### T210 APKPure proto 历史版本名
 
@@ -223,6 +225,21 @@
 
 - 条件：下载页无 CDN URL，但有 `versionCode`
 - 预期：页面文件类型明确时构造对应 URL；类型缺失时探测 APK/XAPK/APKS 候选，并按文件类型输出计划
+
+### T217 共享版本目录解析（apkpure_versions）
+
+- fixture：`/versions` 页 HTML（含目标包多版本、推广项、详情按钮）
+- 预期：按 `data-dt-apkid` base64 解码出的包名过滤推广项、按 `versionCode` 去重；`select_version`
+  优先 `versionCode` 其次 `versionName`，命中不到返回 `None`
+- 预期：`chromium_proxy` 正确拆出 server/username/password；`download_url_from_html` 识别
+  `/custom/`、`/b/`、winudf 链接
+
+### T218 上游代理（UPSTREAM_PROXY）
+
+- 预期：`factory` 把 `settings.upstream_proxy` 透传到 `apkpure-signed`/`apkpure-web`/`google-play`
+- 预期：`downloader._validate_url(via_proxy=True)` 跳过本地 IP 的 SSRF 校验，仍校验 scheme；
+  wget 兜底带 `http_proxy`/`https_proxy` 环境变量
+- 备注：`PackageFile.proxy` 为 `exclude=True`，不出现在 `/files` 等 API 响应
 
 ## API 与部署 smoke
 

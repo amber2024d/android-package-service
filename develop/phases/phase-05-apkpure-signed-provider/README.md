@@ -68,15 +68,24 @@ org.fdroid.fdroid
 - 已新增 `app/providers/apkpure_signed.py` 和 `tests/providers/test_apkpure_signed.py`。
 - `ProviderFactory` 已按 `PROVIDER_APKPURE_SIGNED_ENABLED` 注册 `apkpure-signed`。
 - `asset.type=APK/XAPK/APKS` 分别映射为 `BASE_APK`、`XAPK`、`APKS`，保留 `size` 和 `sha1` 给下载层校验。
-- 只支持最新版；指定版本不匹配时返回 `UNSUPPORTED`。
+- 最初只支持最新版；指定版本不匹配时返回 `UNSUPPORTED`。
 - 单测命令：
 
 ```sh
 uv run --python /opt/homebrew/bin/python3.12 --extra dev pytest
 ```
 
+## 迭代：历史版本（后续补齐）
+
+- 签名 API 只返回最新版，已新增历史版本回退：请求的 `versionCode`/`versionName` 不等于
+  最新版时，改走与 `apkpure-web` 共用的 `app/providers/apkpure_versions.py`
+  网页版本目录（抓 `/versions` 列表 + 各版本下载页预签名 CDN 链接），命中不到返回 `NOT_FOUND`。
+- 细节见 [providers 文档的 APKPureSignedProvider 段落](../../android-package-service-providers.md)。
+- 已用 `com.oakever.meowdoku` 的 `versionCode=116` / `versionName=1.2.1`（v1.2.1）实测
+  下载计划成功。注意：实际取文件在透明代理环境下会被公共下载层的 SSRF 防护拦截（CDN 主机解析到
+  `198.18.0.0/15` 假 IP，被判定为私有地址），该问题对最新版下载同样存在，与本次历史版本能力无关。
+
 ## 本阶段不做
 
-- 不支持历史版本。
 - 不长期缓存 APKPure CDN URL。
 - 不解包 APKS/XAPK。

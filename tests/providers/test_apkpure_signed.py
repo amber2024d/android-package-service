@@ -10,7 +10,8 @@ import respx
 import app.providers.apkpure_signed as apkpure_signed
 from app.core.config import Settings
 from app.domain.errors import ErrorCode, ProviderException
-from app.domain.models import AndroidPackageRequest, PackageFileType
+from app.domain.models import AndroidPackageRequest, PackageFile, PackageFileType
+from app.providers import apkpure_versions
 from app.providers.apkpure_signed import APKPureSignedProvider
 from app.providers.factory import ProviderFactory
 
@@ -74,18 +75,57 @@ def test_specified_latest_version_success():
 @pytest.mark.parametrize(
     "package_request",
     [
-        AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1),
-        AndroidPackageRequest(package_name="org.fdroid.fdroid", version_name="0.1"),
+        AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1020000),
+        AndroidPackageRequest(package_name="org.fdroid.fdroid", version_name="1.20.0"),
     ],
 )
-def test_specified_old_version_is_unsupported(package_request):
+def test_specified_old_version_resolves_via_web_catalog(monkeypatch, package_request):
     provider = APKPureSignedProvider()
     provider._request_json = _responder(_payload())
+    provider._web_versions = _responder(_catalog())
+    expected = PackageFile(
+        type=PackageFileType.BASE_APK,
+        name="base.apk",
+        url="https://d.apkpure.com/custom/old.apk",
+        metadata={"download.fallback": "wget"},
+    )
+
+    async def fake_resolve(version, **kwargs):
+        assert version.version_code == 1020000
+        assert version.version_name == "1.20.0"
+        return expected
+
+    monkeypatch.setattr(apkpure_versions, "resolve_version_file", fake_resolve)
+
+    plan = _run(provider.get_download_plan(package_request))
+
+    assert plan.provider == "apkpure-signed"
+    assert plan.version_code == 1020000
+    assert plan.version_name == "1.20.0"
+    assert plan.files[0].url == "https://d.apkpure.com/custom/old.apk"
+
+
+def test_specified_missing_version_maps_not_found():
+    provider = APKPureSignedProvider()
+    provider._request_json = _responder(_payload())
+    provider._web_versions = _responder([])
 
     with pytest.raises(ProviderException) as exc:
-        _run(provider.get_download_plan(package_request))
+        _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=999)))
 
-    assert exc.value.provider_error.error == ErrorCode.UNSUPPORTED
+    assert exc.value.provider_error.error == ErrorCode.NOT_FOUND
+
+
+def _catalog():
+    detail_url = "https://apkpure.com/f-droid/org.fdroid.fdroid"
+    return [
+        apkpure_versions.APKPureVersion(
+            "org.fdroid.fdroid", "1.23.2", 1023052, "b/APK/x", PackageFileType.BASE_APK, detail_url
+        ),
+        apkpure_versions.APKPureVersion(
+            "org.fdroid.fdroid", "1.20.0", 1020000, "b/APK/y", PackageFileType.BASE_APK, detail_url
+        ),
+    ]
 
 
 def test_missing_asset_maps_bad_response():

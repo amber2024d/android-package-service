@@ -1,11 +1,8 @@
 from dataclasses import dataclass
 from html import unescape
-from html.parser import HTMLParser
 import re
 from typing import NoReturn
-from urllib.parse import quote, urlencode, urljoin, urlparse
-
-import httpx
+from urllib.parse import quote, urlencode, urljoin
 
 from app.domain.errors import ErrorCode, ProviderError, ProviderException
 from app.domain.models import (
@@ -16,26 +13,9 @@ from app.domain.models import (
     PackageFileType,
     PackageVersion,
 )
+from app.providers import apkpure_versions
+from app.providers.apkpure_versions import WEB_DOWNLOAD_HEADERS
 from app.providers.base import AndroidPackageProvider
-
-
-CDN_RE = re.compile(r"https?://[^\s\"'<>]+(?:apkpure\.com/b/|winudf\.com)[^\s\"'<>]*", re.IGNORECASE)
-WEB_DOWNLOAD_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Cache-Control": "no-cache",
-    "Pragma": "no-cache",
-    "Sec-Ch-Ua": '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-    "Sec-Ch-Ua-Mobile": "?0",
-    "Sec-Ch-Ua-Platform": '"Windows"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-}
 
 
 @dataclass(frozen=True)
@@ -49,47 +29,28 @@ class APKPureWebDetail:
     download_page_url: str
 
 
-class LinkParser(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.links: list[dict[str, str]] = []
-        self.h1: list[str] = []
-        self._h1_depth = 0
-        self._h1_chunks: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        values = {key.lower(): value or "" for key, value in attrs}
-        if tag.lower() == "a":
-            self.links.append(values)
-        if tag.lower() == "h1":
-            self._h1_depth += 1
-            self._h1_chunks = []
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag.lower() == "h1" and self._h1_depth:
-            text = " ".join("".join(self._h1_chunks).split())
-            if text:
-                self.h1.append(text)
-            self._h1_depth -= 1
-
-    def handle_data(self, data: str) -> None:
-        if self._h1_depth:
-            self._h1_chunks.append(data)
-
-
 class APKPureWebProvider(AndroidPackageProvider):
     id = "apkpure-web"
     base_url = "https://apkpure.com"
 
-    def __init__(self, priority: int = 20, enabled: bool = True, timeout_seconds: float = 120.0, user_agent: str = "AndroidPackageService/0.1.0"):
+    def __init__(
+        self,
+        priority: int = 20,
+        enabled: bool = True,
+        timeout_seconds: float = 120.0,
+        user_agent: str = "AndroidPackageService/0.1.0",
+        proxy: str | None = None,
+    ):
         self.priority = priority
         self.enabled = enabled
         self.timeout_seconds = timeout_seconds
         self.user_agent = user_agent
+        self.proxy = proxy
 
     async def get_package_info(self, request: AndroidPackageRequest) -> AndroidPackageInfo:
         detail = await self._load_detail(request.package_name)
-        self._check_version(detail, request)
+        if self._is_historical(detail, request):
+            return await self._historical_package_info(detail, request)
         return AndroidPackageInfo(
             package_name=detail.package_name,
             app_name=detail.app_name,
@@ -112,34 +73,29 @@ class APKPureWebProvider(AndroidPackageProvider):
 
     async def get_download_plan(self, request: AndroidPackageRequest) -> DownloadPlan:
         detail = await self._load_detail(request.package_name)
-        self._check_version_name(detail, request)
-        url = None
-        content_disposition = None
+        if self._is_historical(detail, request):
+            return await self._historical_download_plan(detail, request)
 
-        if request.version_code is None or request.version_code == detail.version_code:
-            download_html = await self._load_html(detail.download_page_url)
-            url = self._download_url_from_html(download_html)
-            if url:
-                content_disposition = await self._content_disposition(url)
+        download_html = await self._load_html(detail.download_page_url)
+        url = self._download_url_from_html(download_html)
+        content_disposition = await self._content_disposition(url) if url else None
 
-        version_code = request.version_code or detail.version_code
-        if not url and version_code is not None:
+        if not url and detail.version_code is not None:
             file_type, url, content_disposition = await self._constructed_download(
                 detail.package_name,
-                version_code,
+                detail.version_code,
                 detail.raw_file_type,
             )
 
         file_type = self._file_type(detail.raw_file_type, url, content_disposition)
         if not url:
             self._fail(ErrorCode.BAD_RESPONSE, "APKPure web download url is missing.")
-        version_name = request.version_name or (detail.version_name if version_code == detail.version_code else None)
 
         return DownloadPlan(
             package_name=detail.package_name,
             app_name=detail.app_name,
-            version_name=version_name,
-            version_code=version_code,
+            version_name=detail.version_name,
+            version_code=detail.version_code,
             provider=self.id,
             files=[
                 PackageFile(
@@ -147,10 +103,89 @@ class APKPureWebProvider(AndroidPackageProvider):
                     name=self._file_name(file_type),
                     url=url,
                     headers={**WEB_DOWNLOAD_HEADERS, "Referer": detail.download_page_url},
+                    proxy=self.proxy,
                     metadata={"asset.type": file_type.value, "download.fallback": "wget"},
                 )
             ],
         )
+
+    # -- 历史版本：走共享版本目录（/versions 页抓取 + 各版本下载页解析） --
+
+    def _is_historical(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> bool:
+        if request.version_code is not None and request.version_code != detail.version_code:
+            return True
+        if request.version_name is not None and request.version_name != detail.version_name:
+            return True
+        return False
+
+    async def _historical_versions(self, detail: APKPureWebDetail) -> list[apkpure_versions.APKPureVersion]:
+        return await apkpure_versions.list_versions(
+            detail.detail_url,
+            detail.package_name,
+            provider_id=self.id,
+            user_agent=self.user_agent,
+            timeout_seconds=self.timeout_seconds,
+            proxy=self.proxy,
+        )
+
+    async def _historical_download_plan(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> DownloadPlan:
+        versions = await self._historical_versions(detail)
+        version = self._select_historical(versions, request)
+        package_file = await apkpure_versions.resolve_version_file(
+            version,
+            provider_id=self.id,
+            user_agent=self.user_agent,
+            timeout_seconds=self.timeout_seconds,
+            proxy=self.proxy,
+        )
+        return DownloadPlan(
+            package_name=detail.package_name,
+            app_name=detail.app_name,
+            version_name=version.version_name,
+            version_code=version.version_code,
+            provider=self.id,
+            files=[package_file],
+        )
+
+    async def _historical_package_info(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> AndroidPackageInfo:
+        versions = await self._historical_versions(detail)
+        selected = self._select_historical(versions, request)
+        return AndroidPackageInfo(
+            package_name=detail.package_name,
+            app_name=detail.app_name,
+            version_name=selected.version_name,
+            version_code=selected.version_code,
+            provider=self.id,
+            download_url=self._api_download_url(
+                detail.package_name,
+                version_code=selected.version_code,
+                version_name=selected.version_name,
+            ),
+            versions=[
+                PackageVersion(
+                    version_code=version.version_code,
+                    version_name=version.version_name,
+                    download_url=self._api_download_url(
+                        detail.package_name,
+                        version_code=version.version_code,
+                        version_name=version.version_name,
+                    ),
+                )
+                for version in versions
+            ],
+        )
+
+    def _select_historical(
+        self, versions: list[apkpure_versions.APKPureVersion], request: AndroidPackageRequest
+    ) -> apkpure_versions.APKPureVersion:
+        version = apkpure_versions.select_version(
+            versions, version_code=request.version_code, version_name=request.version_name
+        )
+        if version is None:
+            self._fail(ErrorCode.NOT_FOUND, "APKPure web has no matching historical version.")
+        return version
+
+    # -- 下载页/详情页加载与解析（委托共享模块，保留实例方法便于测试打桩） --
 
     async def _load_detail(self, package_name: str) -> APKPureWebDetail:
         search_html = await self._load_html(f"{self.base_url}/search?q={quote(package_name, safe='')}")
@@ -158,47 +193,18 @@ class APKPureWebProvider(AndroidPackageProvider):
         return self._detail_from_html(await self._load_html(detail_url), package_name, detail_url)
 
     async def _load_html(self, url: str) -> str:
-        try:
-            from playwright.async_api import Error as PlaywrightError
-            from playwright.async_api import TimeoutError as PlaywrightTimeoutError
-            from playwright.async_api import async_playwright
-
-            async with async_playwright() as playwright:
-                browser = await playwright.chromium.launch(headless=True, args=["--no-sandbox"])
-                try:
-                    page = await browser.new_page(user_agent=self.user_agent)
-                    response = await page.goto(url, wait_until="domcontentloaded", timeout=self.timeout_seconds * 1000)
-                    if response and response.status == 404:
-                        self._fail(ErrorCode.NOT_FOUND, "APKPure web page not found.")
-                    if response and response.status >= 500:
-                        self._fail(ErrorCode.NETWORK_ERROR, f"APKPure web returned HTTP {response.status}.")
-                    return await page.content()
-                finally:
-                    await browser.close()
-        except ProviderException:
-            raise
-        except (PlaywrightTimeoutError, PlaywrightError) as exc:
-            self._fail(ErrorCode.NETWORK_ERROR, f"APKPure web browser failed: {exc}")
+        return await apkpure_versions.load_html(
+            url, provider_id=self.id, user_agent=self.user_agent, timeout_seconds=self.timeout_seconds, proxy=self.proxy
+        )
 
     async def _content_disposition(self, url: str | None) -> str | None:
         result = await self._head(url)
         return result[1] if result else None
 
     async def _head(self, url: str | None) -> tuple[str, str | None] | None:
-        if not url:
-            return None
-        try:
-            async with httpx.AsyncClient(
-                follow_redirects=True,
-                timeout=httpx.Timeout(self.timeout_seconds, connect=30.0),
-                headers={"User-Agent": self.user_agent},
-            ) as client:
-                response = await client.head(url)
-            if response.status_code >= 400:
-                return None
-            return str(response.url), response.headers.get("content-disposition")
-        except httpx.RequestError:
-            return None
+        return await apkpure_versions.head(
+            url, user_agent=self.user_agent, timeout_seconds=self.timeout_seconds, proxy=self.proxy
+        )
 
     async def _constructed_download(self, package_name: str, version_code: int, raw_type: str | None) -> tuple[PackageFileType, str, str | None]:
         try:
@@ -219,14 +225,7 @@ class APKPureWebProvider(AndroidPackageProvider):
         self._fail(ErrorCode.BAD_RESPONSE, "APKPure web constructed download url is unavailable.")
 
     def _search_result_url(self, html: str, package_name: str) -> str:
-        for link in self._parse(html).links:
-            href = link.get("href")
-            if not href:
-                continue
-            url = urljoin(self.base_url, href)
-            if urlparse(url).path.rstrip("/").endswith(f"/{package_name}"):
-                return url
-        self._fail(ErrorCode.NOT_FOUND, "APKPure web search had no exact package match.")
+        return apkpure_versions.search_result_url(html, self.base_url, package_name, provider_id=self.id)
 
     def _detail_from_html(self, html: str, package_name: str, detail_url: str) -> APKPureWebDetail:
         parsed = self._parse(html)
@@ -253,12 +252,7 @@ class APKPureWebProvider(AndroidPackageProvider):
         )
 
     def _download_url_from_html(self, html: str) -> str | None:
-        for link in self._parse(html).links:
-            href = unescape(link.get("href") or "")
-            if "apkpure.com/b/" in href or "winudf.com" in href:
-                return urljoin(self.base_url, href)
-        match = CDN_RE.search(unescape(html))
-        return match.group(0) if match else None
+        return apkpure_versions.download_url_from_html(html, self.base_url)
 
     def _download_button(self, links: list[dict[str, str]]) -> dict[str, str]:
         for link in links:
@@ -268,35 +262,13 @@ class APKPureWebProvider(AndroidPackageProvider):
         return {}
 
     def _file_type(self, raw_type: str | None, url: str | None, content_disposition: str | None) -> PackageFileType:
-        for value in (raw_type, url, content_disposition):
-            normalized = (value or "").upper()
-            if "APKS" in normalized or ".APKS" in normalized:
-                return PackageFileType.APKS
-            if "XAPK" in normalized or ".XAPK" in normalized:
-                return PackageFileType.XAPK
-            if "APK" in normalized or ".APK" in normalized:
-                return PackageFileType.BASE_APK
-        self._fail(ErrorCode.BAD_RESPONSE, "APKPure web file type is missing.")
+        return apkpure_versions.file_type_from(raw_type, url, content_disposition, provider_id=self.id)
 
     def _constructed_url(self, package_name: str, version_code: int, file_type: PackageFileType) -> str:
-        folder = {PackageFileType.BASE_APK: "APK", PackageFileType.XAPK: "XAPK", PackageFileType.APKS: "APKS"}[file_type]
-        return f"https://d.apkpure.com/b/{folder}/{quote(package_name, safe='')}?versionCode={version_code}"
+        return apkpure_versions.constructed_url(package_name, version_code, file_type)
 
     def _file_name(self, file_type: PackageFileType) -> str:
-        return {
-            PackageFileType.BASE_APK: "base.apk",
-            PackageFileType.XAPK: "base.xapk",
-            PackageFileType.APKS: "base.apks",
-        }[file_type]
-
-    def _check_version(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> None:
-        if request.version_code is not None and detail.version_code != request.version_code:
-            self._fail(ErrorCode.UNSUPPORTED, "APKPure web package info only supports latest versionCode.")
-        self._check_version_name(detail, request)
-
-    def _check_version_name(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> None:
-        if request.version_name is not None and detail.version_name != request.version_name:
-            self._fail(ErrorCode.UNSUPPORTED, "APKPure web only supports parsed latest versionName.")
+        return apkpure_versions.file_name(file_type)
 
     def _api_download_url(self, package_name: str, version_code: int | None = None, version_name: str | None = None) -> str:
         params: dict[str, str] = {"provider": self.id}
@@ -306,10 +278,8 @@ class APKPureWebProvider(AndroidPackageProvider):
             params["versionName"] = version_name
         return f"/api/v1/android/apps/{quote(package_name, safe='')}/download?{urlencode(params)}"
 
-    def _parse(self, html: str) -> LinkParser:
-        parser = LinkParser()
-        parser.feed(html)
-        return parser
+    def _parse(self, html: str) -> apkpure_versions.LinkParser:
+        return apkpure_versions.parse_links(html)
 
     def _regex_attr(self, html: str, name: str) -> str | None:
         match = re.search(rf"{re.escape(name)}=[\"']([^\"']+)", html, re.IGNORECASE)

@@ -55,6 +55,7 @@ services:
       HTTP_PROXY: ${HTTP_PROXY:-}
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
+      UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
       - app_data:/app/data
@@ -163,6 +164,8 @@ PROVIDER_APKPURE_WEB_PRIORITY=20
 HTTP_PROXY=
 HTTPS_PROXY=
 ALL_PROXY=
+# APKPure 系 provider 专用上游代理（HTTP/HTTPS，含鉴权；SOCKS5 不支持）。
+UPSTREAM_PROXY=
 
 NAS_HOST=192.168.1.10
 NAS_PORT=445
@@ -192,6 +195,18 @@ HTTPS_PROXY=http://host.docker.internal:7890
 HTTP_PROXY=http://host.docker.internal:7890
 ALL_PROXY=socks5://host.docker.internal:7890
 ```
+
+APKPure 的 CDN（`d.apkpure.com`）/ Aurora dispenser（`auroraoss.com`）被 Cloudflare 拦、或本机出口被
+透明代理改写成 `198.18.0.0/15` 假 IP 触发下载层 SSRF 拦截时，给 `apkpure-signed` / `apkpure-web` /
+`google-play` 配置上游代理（HTTP/HTTPS，含鉴权，**SOCKS5 不支持**）：
+
+```text
+UPSTREAM_PROXY=http://USER:PASS@HOST:PORT
+```
+
+配置后这些 provider 的全部上游流量（取 token、签名/Play API、网页抓取、CDN 下载）统一走该代理
+（出口 IP 一致，预签名/带 cookie 的下载链接绑 IP），走代理的下载会跳过本地 IP 的 SSRF 校验。详见
+[providers 文档的 UPSTREAM_PROXY 段落](android-package-service-providers.md)。
 
 Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 

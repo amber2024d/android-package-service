@@ -139,7 +139,7 @@ def test_download_uses_wget_fallback_when_marked(tmp_path, monkeypatch):
     async def fail_httpx(*args, **kwargs):
         raise RuntimeError("blocked")
 
-    def wget_download(url, target, headers):
+    def wget_download(url, target, headers, proxy=None):
         calls.append((url, target, headers["Referer"]))
         target.write_bytes(b"PK\x03\x04apk")
 
@@ -173,7 +173,7 @@ def test_wget_fallback_builds_original_style_command(tmp_path, monkeypatch):
         calls.append((command, kwargs))
         part.write_bytes(b"PK\x03\x04apk")
 
-    monkeypatch.setattr(downloader, "_validate_url", lambda url: None)
+    monkeypatch.setattr(downloader, "_validate_url", lambda url, via_proxy=False: None)
     monkeypatch.setattr("app.download.downloader.shutil.which", lambda name: "/usr/bin/wget" if name == "wget" else None)
     monkeypatch.setattr("app.download.downloader.subprocess.run", fake_run)
 
@@ -206,6 +206,65 @@ def test_wget_fallback_builds_original_style_command(tmp_path, monkeypatch):
     assert command[-1] == "https://download.example/app.apk"
     assert command.index("--referer=https://apkpure.com/app/download") < len(command) - 1
     assert kwargs["check"] is True
+
+
+def test_validate_url_skips_ip_check_when_via_proxy(tmp_path):
+    downloader = _downloader(tmp_path)
+
+    # 直连：localhost 解析到回环地址，应被 SSRF 防护拦掉
+    try:
+        downloader._validate_url("https://localhost/app.apk")
+        raise AssertionError("expected blocked address to raise")
+    except ValueError:
+        pass
+
+    # 走代理：跳过本地 IP 解析校验，不报错
+    downloader._validate_url("https://localhost/app.apk", via_proxy=True)
+
+    # 但 scheme 仍然校验
+    try:
+        downloader._validate_url("ftp://localhost/app.apk", via_proxy=True)
+        raise AssertionError("expected scheme check to raise")
+    except ValueError:
+        pass
+
+
+def test_wget_passes_proxy_env(tmp_path, monkeypatch):
+    downloader = _downloader(tmp_path)
+    part = tmp_path / "download.apk.part"
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(kwargs)
+        part.write_bytes(b"PK\x03\x04apk")
+
+    monkeypatch.setattr(downloader, "_validate_url", lambda url, via_proxy=False: None)
+    monkeypatch.setattr("app.download.downloader.shutil.which", lambda name: "/usr/bin/wget")
+    monkeypatch.setattr("app.download.downloader.subprocess.run", fake_run)
+
+    try:
+        downloader._download_url_with_wget(
+            "https://d.apkpure.com/custom/app.apk",
+            part,
+            {"User-Agent": "Mozilla/5.0"},
+            proxy="http://user:pass@host:3128",
+        )
+    finally:
+        get_settings.cache_clear()
+
+    env = calls[0]["env"]
+    assert env["http_proxy"] == "http://user:pass@host:3128"
+    assert env["https_proxy"] == "http://user:pass@host:3128"
+
+
+def _downloader(tmp_path: Path) -> PackageDownloader:
+    get_settings.cache_clear()
+    settings = get_settings()
+    settings.data_dir = tmp_path / "data"
+    settings.temp_dir = tmp_path / "tmp"
+    settings.nas_mount_path = tmp_path / "nas"
+    settings.ensure_directories()
+    return PackageDownloader(settings)
 
 
 def _client(tmp_path: Path) -> TestClient:

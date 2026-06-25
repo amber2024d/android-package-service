@@ -57,6 +57,7 @@ class PackageFile(ApiModel):
     source_url: str | None = Field(default=None, exclude=True)
     source_path: str | None = Field(default=None, exclude=True)
     headers: dict[str, str] = Field(default_factory=dict, exclude=True)
+    proxy: str | None = Field(default=None, exclude=True)  # 上游代理，含凭据，excluded 不进 API 响应
     fallback_urls: list[str] = Field(default_factory=list)
     size: int | None = None
     md5: str | None = None

@@ -131,12 +131,20 @@ Token 缓存：
 - 安全 TTL：最多 30 分钟
 - token 失效时重新向 dispenser 请求
 
+代理：本机出口被 Cloudflare 拦时，Aurora dispenser（`auroraoss.com/api/auth`）会返回 403
+「Just a moment」挑战页，导致取 token 失败。配置 `UPSTREAM_PROXY` 后整条链路（取 token、
+gpapi 的 `checkin`/`details`/`delivery` 经 `proxies_config`、以及 CDN 下载）统一走代理即可恢复。
+实测 `com.oakever.meowdoku` 经代理可完整下到 base+split 并打成 XAPK。详见
+[UPSTREAM_PROXY 段落](#upstream_proxyapkpure--google-play-上游代理)。
+
 风险：
 
-- Aurora dispenser 不可用。
+- Aurora dispenser 不可用，或被 Cloudflare 拦（用 `UPSTREAM_PROXY` 绕过）。
 - Google Play 协议变化。
 - 匿名账号被限制。
 - `gpapi` 原生 `delivery()` 不完整暴露 split，需要 Provider patch delivery 响应解析。
+- Google 通常只发设备/账号匹配的版本，历史 `versionCode` 不保证可下；且接口只认 `versionCode`，
+  不认 `versionName`（要按 versionName 下历史包走 APKPure/Aptoide）。
 
 这些风险不应阻断服务整体，失败后 fallback 到 Aptoide/APKPure。
 
@@ -232,16 +240,29 @@ POST https://tapi.pureapk.com/v3/get_app_detail
 
 | 条件 | 支持情况 |
 | --- | --- |
-| 最新版本 | 支持 |
-| 指定 `versionCode` | 仅当等于最新版本时支持 |
-| 指定 `versionName` | 仅当等于最新版本时支持 |
-| 历史版本 | 不支持 |
+| 最新版本 | 支持（签名 API `get_app_detail`） |
+| 指定 `versionCode` | 等于最新版走签名 API；不等于时回退网页版本目录 |
+| 指定 `versionName` | 等于最新版走签名 API；不等于时回退网页版本目录 |
+| 历史版本 | 支持（回退到共享网页版本目录 `apkpure_versions`） |
+
+历史版本回退（与 `apkpure-web` 共用 `app/providers/apkpure_versions.py`）：
+
+- 签名 API 只返回最新版，所以请求的 `versionCode`/`versionName` 不等于最新版时，
+  改走网页抓取：搜索页解析 slug 详情页 → 抓 `/{slug}/{packageName}/versions`
+  解析全部历史版本（按 `data-dt-apkid` base64 解码出的包名过滤掉推广项）→ 命中后抓
+  该版本下载页 `/{slug}/{packageName}/download/{versionName}` 提取预签名
+  `d.apkpure.com/custom/...` CDN 链接（拿不到时回退 `d.apkpure.com/{apkid}`）。
+- 命中不到对应版本返回 `NOT_FOUND`。
+- 网页页面加载用服务 UA（`AndroidPackageService/0.1.0`）走无头 Chromium；APKPure 的
+  Cloudflare 会拦截常见 Chrome UA 的无头浏览器，反而放行该服务 UA。CDN 文件下载仍用桌面
+  浏览器 UA + `Referer`，并带 `download.fallback=wget` 兜底。
 
 风险：
 
 - 签名规则来自逆向 APKPure 客户端，可能变化。
 - CDN URL 带 token，不适合长期缓存。
-- 历史版本能力不足，需要 `apkpure-proto` 补充。
+- 历史版本依赖网页结构（`data-dt-*` 属性、下载页 CDN 链接）和 Cloudflare 放行策略，
+  上游改版会失效。
 
 ## APKPureProtoProvider
 
@@ -321,16 +342,22 @@ https://apkpure.com/{slug}/{packageName}/download
 
 | 条件 | 支持情况 |
 | --- | --- |
-| 最新版本 | 支持 |
-| 指定 `versionCode` | 尝试构造下载 URL |
-| 指定 `versionName` | 仅当页面能解析或跳转到对应版本页 |
-| 历史版本列表 | 不作为第一版目标 |
+| 最新版本 | 支持（详情页 + 下载页 CDN 链接） |
+| 指定 `versionCode` | 非最新版走共享版本目录 `apkpure_versions` |
+| 指定 `versionName` | 非最新版走共享版本目录 `apkpure_versions` |
+| 历史版本列表 | 支持（`get_package_info` 非最新版时返回完整 `versions`） |
+
+历史版本与 `apkpure-signed` 共用 `app/providers/apkpure_versions.py`：抓
+`/{slug}/{packageName}/versions` 解析版本列表（按 `data-dt-apkid` base64 解码出的包名
+过滤推广项、按 `versionCode` 去重），命中后抓该版本下载页提取预签名 `d.apkpure.com/custom/...`
+CDN 链接，拿不到时回退 `d.apkpure.com/{apkid}`。原先「构造 `/b/{TYPE}/...?versionCode=`
++ HEAD 探测」的兜底已被该版本目录取代（该构造 URL 会被 Cloudflare 拦截）。
 
 风险：
 
 - 慢。
-- 依赖页面结构。
-- 依赖 Chromium 运行环境。
+- 依赖页面结构（`data-dt-*`、下载页 CDN 链接）。
+- 依赖 Chromium 运行环境与 Cloudflare 放行策略。
 
 当前实现：
 
@@ -382,4 +409,24 @@ PROVIDER_APKPURE_WEB_PRIORITY=20
 HTTP_PROXY=
 HTTPS_PROXY=
 ALL_PROXY=
+# APKPure 系 provider 专用上游代理（HTTP/HTTPS，含鉴权；SOCKS5 不支持）。
+UPSTREAM_PROXY=
 ```
+
+### UPSTREAM_PROXY（APKPure / Google Play 上游代理）
+
+- 格式 `http://USER:PASS@HOST:PORT`，仅支持 HTTP/HTTPS 代理；**SOCKS5 不支持**（Chromium
+  无法使用带鉴权的 SOCKS5；且实测目标 CDN 会因 IP/客户端指纹返回 403）。
+- 留空则直连。配置后这些 provider 的**整条链路统一走该代理**：
+  - `apkpure-signed` / `apkpure-web`：签名 API、网页抓取（Playwright Chromium）、CDN 下载（httpx/wget）。
+  - `google-play`：Aurora 取 token、gpapi 的 `checkin`/`details`/`delivery`（`proxies_config`）、CDN 下载。
+- 统一出口 IP 的两个作用：① 绕过 Cloudflare（Aurora dispenser `auroraoss.com`、APKPure CDN 都会拦本机出口）；
+  ② 预签名链接（`d.apkpure.com/custom/...`）和 Play 的带 cookie 下载链接都**绑定生成它的会话/IP**，
+  取链接与下文件必须同一出口 IP。
+- 走代理时公共下载层 `_validate_url(via_proxy=True)` 跳过本地 IP 解析的 SSRF 拦截（连接走代理，本地解析
+  无意义；也绕开了透明代理把 CDN 解析到 `198.18.0.0/15` 假 IP 被判私有地址的问题）。`PackageFile.proxy`
+  字段 `exclude=True`，不会出现在 `/files` 等 API 响应里，避免泄露凭据。
+- 取舍与注意：① 开启后连「查最新版」这类原本直连可用的请求也走代理，增加延迟；② 实测该代理是**轮换池**，
+  个别出口节点对某些主机的 CONNECT 会偶发返回 403，导致多跳链路（尤其 google-play 的 token→checkin→
+  details→delivery）偶发失败，**重试通常即可成功**（token 命中缓存后少一跳更稳）。仅在被 Cloudflare 拦或
+  本机出口受限时开启。

@@ -17,6 +17,7 @@ from app.domain.models import (
     PackageFileType,
     PackageVersion,
 )
+from app.providers import apkpure_versions
 from app.providers.base import AndroidPackageProvider
 
 
@@ -29,16 +30,30 @@ class APKPureSignedProvider(AndroidPackageProvider):
     id = "apkpure-signed"
     base_url = "https://tapi.pureapk.com/v3"
 
-    def __init__(self, priority: int = 100, enabled: bool = True, timeout_seconds: float = 120.0, hl: str = "en-US"):
+    def __init__(
+        self,
+        priority: int = 100,
+        enabled: bool = True,
+        timeout_seconds: float = 120.0,
+        hl: str = "en-US",
+        web_user_agent: str = "AndroidPackageService/0.1.0",
+        proxy: str | None = None,
+    ):
         self.priority = priority
         self.enabled = enabled
         self.timeout_seconds = timeout_seconds
         self.hl = hl
+        # 历史版本回退走网页抓取：APKPure 的 Cloudflare 会拦截常见 Chrome UA 的无头浏览器，
+        # 反而放行这个服务 UA，所以页面加载用它（CDN 文件下载仍用桌面浏览器 UA）。
+        self.web_user_agent = web_user_agent
+        # 配置后整条 apkpure 链路（签名 API、网页抓取、CDN 下载）统一走该代理，出口 IP 一致。
+        self.proxy = proxy
 
     async def get_package_info(self, request: AndroidPackageRequest) -> AndroidPackageInfo:
         detail = await self._detail(request.package_name)
-        self._check_latest(detail, request)
         package_name = self._package_name(detail, request.package_name)
+        if self._is_historical(detail, request):
+            return await self._historical_package_info(package_name, detail, request)
         version_code = self._version_code(detail)
         version_name = self._version_name(detail)
         return AndroidPackageInfo(
@@ -59,8 +74,9 @@ class APKPureSignedProvider(AndroidPackageProvider):
 
     async def get_download_plan(self, request: AndroidPackageRequest) -> DownloadPlan:
         detail = await self._detail(request.package_name)
-        self._check_latest(detail, request)
         package_name = self._package_name(detail, request.package_name)
+        if self._is_historical(detail, request):
+            return await self._historical_download_plan(package_name, detail, request)
         return DownloadPlan(
             package_name=package_name,
             app_name=self._title(detail, package_name),
@@ -68,6 +84,89 @@ class APKPureSignedProvider(AndroidPackageProvider):
             version_code=self._version_code(detail),
             provider=self.id,
             files=[self._file(self._asset(detail))],
+        )
+
+    # -- 历史版本：签名 API 只返回最新版，非最新版回退到共享网页版本目录 --
+
+    def _is_historical(self, detail: dict[str, Any], request: AndroidPackageRequest) -> bool:
+        if request.version_code is not None and request.version_code != self._version_code(detail):
+            return True
+        if request.version_name is not None and request.version_name != self._version_name(detail):
+            return True
+        return False
+
+    async def _web_versions(self, package_name: str) -> list[apkpure_versions.APKPureVersion]:
+        detail_url = await apkpure_versions.resolve_detail_url(
+            apkpure_versions.WEB_BASE_URL,
+            package_name,
+            provider_id=self.id,
+            user_agent=self.web_user_agent,
+            timeout_seconds=self.timeout_seconds,
+            proxy=self.proxy,
+        )
+        return await apkpure_versions.list_versions(
+            detail_url,
+            package_name,
+            provider_id=self.id,
+            user_agent=self.web_user_agent,
+            timeout_seconds=self.timeout_seconds,
+            proxy=self.proxy,
+        )
+
+    def _select_historical(
+        self, versions: list[apkpure_versions.APKPureVersion], request: AndroidPackageRequest
+    ) -> apkpure_versions.APKPureVersion:
+        version = apkpure_versions.select_version(
+            versions, version_code=request.version_code, version_name=request.version_name
+        )
+        if version is None:
+            self._fail(ErrorCode.NOT_FOUND, "APKPure signed has no matching historical version.")
+        return version
+
+    async def _historical_download_plan(
+        self, package_name: str, detail: dict[str, Any], request: AndroidPackageRequest
+    ) -> DownloadPlan:
+        version = self._select_historical(await self._web_versions(package_name), request)
+        package_file = await apkpure_versions.resolve_version_file(
+            version,
+            provider_id=self.id,
+            user_agent=self.web_user_agent,
+            timeout_seconds=self.timeout_seconds,
+            proxy=self.proxy,
+        )
+        return DownloadPlan(
+            package_name=package_name,
+            app_name=self._title(detail, package_name),
+            version_name=version.version_name,
+            version_code=version.version_code,
+            provider=self.id,
+            files=[package_file],
+        )
+
+    async def _historical_package_info(
+        self, package_name: str, detail: dict[str, Any], request: AndroidPackageRequest
+    ) -> AndroidPackageInfo:
+        versions = await self._web_versions(package_name)
+        selected = self._select_historical(versions, request)
+        return AndroidPackageInfo(
+            package_name=package_name,
+            app_name=self._title(detail, package_name),
+            version_name=selected.version_name,
+            version_code=selected.version_code,
+            provider=self.id,
+            download_url=self._download_url(
+                package_name, version_code=selected.version_code, version_name=selected.version_name
+            ),
+            versions=[
+                PackageVersion(
+                    version_code=version.version_code,
+                    version_name=version.version_name,
+                    download_url=self._download_url(
+                        package_name, version_code=version.version_code, version_name=version.version_name
+                    ),
+                )
+                for version in versions
+            ],
         )
 
     async def _detail(self, package_name: str) -> dict[str, Any]:
@@ -87,6 +186,7 @@ class APKPureSignedProvider(AndroidPackageProvider):
                 base_url=self.base_url,
                 follow_redirects=True,
                 timeout=httpx.Timeout(self.timeout_seconds, connect=30.0),
+                proxy=self.proxy,
             ) as client:
                 response = await client.post("get_app_detail", content=body, headers=self._signed_headers(body))
         except httpx.RequestError as exc:
@@ -221,6 +321,7 @@ class APKPureSignedProvider(AndroidPackageProvider):
             url=url,
             size=self._int(asset.get("size")),
             sha1=self._str_or_none(asset.get("sha1")),
+            proxy=self.proxy,
             metadata={"asset.type": asset_type},
         )
 
@@ -229,12 +330,6 @@ class APKPureSignedProvider(AndroidPackageProvider):
         if not isinstance(asset, dict):
             self._fail(ErrorCode.BAD_RESPONSE, "APKPure signed asset is missing.")
         return asset
-
-    def _check_latest(self, detail: dict[str, Any], request: AndroidPackageRequest) -> None:
-        if request.version_code is not None and self._version_code(detail) != request.version_code:
-            self._fail(ErrorCode.UNSUPPORTED, "APKPure signed only supports the latest versionCode.")
-        if request.version_name is not None and self._version_name(detail) != request.version_name:
-            self._fail(ErrorCode.UNSUPPORTED, "APKPure signed only supports the latest versionName.")
 
     def _package_name(self, detail: dict[str, Any], fallback: str) -> str:
         return self._str_or_none(detail.get("package_name")) or fallback

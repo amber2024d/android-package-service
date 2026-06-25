@@ -29,6 +29,8 @@ class ProviderFactory:
                 APKPureSignedProvider(
                     priority=settings.provider_apkpure_signed_priority,
                     timeout_seconds=settings.http_timeout_seconds,
+                    web_user_agent=settings.http_user_agent,
+                    proxy=settings.upstream_proxy,
                 )
             )
         if settings.provider_aptoide_enabled:
@@ -45,6 +47,7 @@ class ProviderFactory:
                     priority=settings.provider_google_play_priority,
                     timeout_seconds=settings.http_timeout_seconds,
                     cache_dir=settings.cache_dir,
+                    proxy=settings.upstream_proxy,
                 )
             )
         if settings.provider_apkpure_proto_enabled:
@@ -60,6 +63,7 @@ class ProviderFactory:
                     priority=settings.provider_apkpure_web_priority,
                     timeout_seconds=settings.http_timeout_seconds,
                     user_agent=settings.http_user_agent,
+                    proxy=settings.upstream_proxy,
                 )
             )
         self.providers = {provider.id: provider for provider in providers if provider.enabled}

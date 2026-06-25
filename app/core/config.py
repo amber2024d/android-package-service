@@ -36,6 +36,15 @@ class Settings(BaseSettings):
     http_timeout_seconds: float = 120.0
     http_user_agent: str = Field(default="AndroidPackageService/0.1.0")
 
+    # APKPure / Google Play 系 provider 的上游代理；CDN 被 Cloudflare 拦或本机出口受限时配置。
+    # 格式 http://USER:PASS@HOST:PORT（HTTP/HTTPS 代理，SOCKS5 不支持，Chromium 无法用带鉴权的 SOCKS5）。
+    # 留空则直连。配置后这些 provider 的全部上游流量统一走该代理：
+    #   - apkpure-signed / apkpure-web：签名 API、网页抓取、CDN 下载
+    #   - google-play：Aurora 取 token、gpapi 的 checkin/details/delivery、CDN 下载
+    # 统一出口 IP 既能绕过 Cloudflare（Aurora dispenser、APKPure CDN 都会拦），
+    # 又保证预签名/带 cookie 的下载链接与生成它的会话同 IP。
+    upstream_proxy: str | None = None
+
     @property
     def cache_dir(self) -> Path:
         return self.data_dir / "cache"
