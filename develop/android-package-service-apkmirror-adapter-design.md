@@ -1,8 +1,12 @@
 # APKMirror 源适配器接入设计草稿
 
-> 状态：**草稿，待评审**。承接[版本目录设计草稿](android-package-service-version-catalog-design.md)
-> §11.2 的实测评估（结论：纳入为更深的 downloadable 源），本文沉淀「怎么接」的具体设计。
-> 评估样本与脚本在 `tmp/apkmirror-eval/`（一次性验证，未入库）。落地前以本文评审为准。
+> 状态：**已落地（阶段 15，2026-06-25）**。本文设计已实现：`apkmirror_versions.py`（抓取工具）+
+> `apkmirror.py`（纯下载 provider）+ `collectors/apkmirror.py`（采集器）+ 下载层 `_expand_bundles`
+> （`.apkm`→`.xapk`）+ config/factory/runtime 注册（默认关、优先级 15）。解析锚定 `tmp/apkmirror-eval/`
+> 真实样本、committed 测试用紧凑合成 fixture。落地差异/留待项见
+> [阶段 15 README](phases/phase-15-apkmirror-source/README.md)（变体精细排序、真实代理 smoke 未做）。
+>
+> 承接[版本目录设计](android-package-service-version-catalog-design.md) §11.2 的实测评估（纳入为更深的 downloadable 源）。
 
 ## 1. 背景与定位
 

@@ -186,8 +186,9 @@ collection_state(                           -- 驱动「全量 vs 增量」
 
 > **落地（阶段 11）**：§F 的「采集器（枚举→目录）」列已实现 APKPure / Aptoide 两源（`app/catalog/collectors/`）。
 > APKPure 复用 `apkpure_versions` 工具，Aptoide 自带精简 `app/get` 抓取；各源稳定下载键写入 `version_sources.download_key`。
-> APKMirror / AppMagic / 账本列分别在阶段 15 / 二期 / 阶段 10 落地。**provider 退化为纯下载器在阶段 12**——本阶段
-> provider 下载路径未变。
+> **APKMirror 源已落地（阶段 15）**：采集器 `collectors/apkmirror.py`（uploads 翻页列版本、download_key=release_url）+
+> 纯下载 provider（产物 `.apkm` 解包重建 `.xapk`、`info.json` 权威回填账本）。AppMagic / 账本列分别在二期 / 阶段 10 落地。
+> **provider 退化为纯下载器在阶段 12**。
 
 ### H. 下载触发的后台收集与单飞去重（决策②）
 

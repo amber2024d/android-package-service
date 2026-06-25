@@ -23,6 +23,7 @@ class PackageFileType(StrEnum):
     OBB_PATCH = "OBB_PATCH"
     XAPK = "XAPK"
     APKS = "APKS"
+    APKM = "APKM"  # APKMirror bundle（ZIP，含 base+split_config.*+info.json）；下载层解包重建 .xapk
 
 
 class AndroidPackageRequest(ApiModel):

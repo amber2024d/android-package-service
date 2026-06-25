@@ -1,10 +1,12 @@
 import asyncio
 import ipaddress
+import json
 import logging
 import os
 import shutil
 import socket
 import subprocess
+import zipfile
 from pathlib import Path
 from typing import ClassVar
 from urllib.parse import urlparse
@@ -24,6 +26,19 @@ from app.download.xapk_builder import XapkBuilder
 from app.utils.filenames import safe_part
 
 logger = logging.getLogger(__name__)
+
+
+def _str_or(value: object, default: str | None) -> str | None:
+    return value if isinstance(value, str) and value else default
+
+
+def _int_or(value: object, default: int | None) -> int | None:
+    if value is None:
+        return default
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return default
 
 
 class PackageDownloader:
@@ -49,6 +64,9 @@ class PackageDownloader:
             files_dir = artifact_dir / "files"
             files_dir.mkdir(parents=True, exist_ok=True)
             fetched = await self._fetch_files(plan, files_dir)
+            plan, fetched = self._expand_bundles(plan, fetched, files_dir)
+            # 解包可能用 info.json 补全 version_code，改变 plan 的 version_key，确保新目标目录存在。
+            self.store.plan_dir(plan).mkdir(parents=True, exist_ok=True)
             artifact = self._finalize(plan, fetched)
             self.store.write_metadata(plan, artifact)
             self._log_artifact("artifact_written", plan, artifact, request_id)
@@ -165,6 +183,59 @@ class PackageDownloader:
         subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, env=env)
         if part.stat().st_size > self.settings.download_max_file_bytes:
             raise ValueError("Downloaded file exceeds configured limit.")
+
+    def _expand_bundles(self, plan: DownloadPlan, fetched: dict[str, Path], files_dir: Path) -> tuple[DownloadPlan, dict[str, Path]]:
+        """APKMirror `.apkm` bundle → base + split_config.* （丢 info.json/icon/签名），交给 XapkBuilder 重建标准 `.xapk`。
+
+        用 `.apkm` 的 `info.json`（权威 name/code/pname，零二进制解析）校正 plan 的版本字段，后续账本回填即权威值。
+        非 bundle 下载原样返回。唯一的下载层改动（APKMirror 适配器设计 §6）。
+        """
+        bundle = next(
+            (file for file in plan.files if file.type == PackageFileType.APKM or file.metadata.get("bundle.format") == "apkm"),
+            None,
+        )
+        if bundle is None:
+            return plan, fetched
+
+        extract_dir = files_dir / "_apkm"
+        if extract_dir.exists():
+            shutil.rmtree(extract_dir)
+        extract_dir.mkdir(parents=True)
+        with zipfile.ZipFile(fetched[bundle.name]) as archive:
+            archive.extractall(extract_dir)
+
+        info: dict = {}
+        info_path = extract_dir / "info.json"
+        if info_path.exists():
+            try:
+                info = json.loads(info_path.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                info = {}
+
+        new_files: list[PackageFile] = []
+        new_fetched: dict[str, Path] = {}
+        for member in sorted(extract_dir.iterdir()):
+            if member.name == "base.apk":
+                new_files.append(PackageFile(type=PackageFileType.BASE_APK, name="base.apk"))
+                new_fetched["base.apk"] = member
+            elif member.name.startswith("split_config.") and member.suffix == ".apk":
+                new_files.append(
+                    PackageFile(type=PackageFileType.SPLIT_APK, name=member.name, split_name=member.stem, split_type="config")
+                )
+                new_fetched[member.name] = member
+            # info.json / icon.png / APKM_installer.url / META-INF/ → 丢弃
+        if "base.apk" not in new_fetched:
+            self._fail(plan.provider, "APKM bundle has no base.apk after extraction.")
+
+        new_plan = plan.model_copy(
+            update={
+                "package_name": _str_or(info.get("pname"), plan.package_name),
+                "version_name": _str_or(info.get("release_version"), plan.version_name),
+                "version_code": _int_or(info.get("versioncode"), plan.version_code),
+                "files": new_files,
+            }
+        )
+        return new_plan, new_fetched
 
     def _finalize(self, plan: DownloadPlan, fetched: dict[str, Path]) -> Path:
         if len(plan.files) == 1 and plan.files[0].type == PackageFileType.BASE_APK:

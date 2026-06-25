@@ -5,6 +5,7 @@ from app.core.config import Settings
 from app.core.logging import log_event
 from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
 from app.domain.models import AndroidPackageInfo, AndroidPackageRequest, DownloadPlan
+from app.providers.apkmirror import APKMirrorProvider
 from app.providers.apkpure_proto import APKPureProtoProvider
 from app.providers.apkpure_signed import APKPureSignedProvider
 from app.providers.apkpure_web import APKPureWebProvider
@@ -61,6 +62,15 @@ class ProviderFactory:
             providers.append(
                 APKPureWebProvider(
                     priority=settings.provider_apkpure_web_priority,
+                    timeout_seconds=settings.http_timeout_seconds,
+                    user_agent=settings.http_user_agent,
+                    proxy=settings.upstream_proxy,
+                )
+            )
+        if settings.provider_apkmirror_enabled:
+            providers.append(
+                APKMirrorProvider(
+                    priority=settings.provider_apkmirror_priority,
                     timeout_seconds=settings.http_timeout_seconds,
                     user_agent=settings.http_user_agent,
                     proxy=settings.upstream_proxy,

@@ -53,7 +53,22 @@ app/core/config.py / factory.py            # 注册 + 默认关 + 优先级 15
 
 ## 当前状态
 
-- 未开始（二期）。依赖阶段 11（采集器框架）+ 阶段 12（纯下载 provider 接口）+ 阶段 10（账本回填）。
+- **已完成（2026-06-25，二期）**。依赖阶段 11（采集器框架）+ 阶段 12（纯下载 provider）+ 阶段 10（账本回填）。
+- 落地：
+  - `app/providers/apkmirror_versions.py`：抓取/解析工具（slug 匹配、uploads 翻页列版本、release 变体、
+    下载页 `Version: name (code)`+downloadButton、中间页 `download.php`、release URL 拼接）。复用 `apkpure_versions.load_html`。
+  - `app/catalog/collectors/apkmirror.py`：采集器（uploads→`VersionRecord`，code 留空、`download_key` 记 release_url/slug）。
+  - `app/providers/apkmirror.py`：纯下载 provider（按 name 拼 release URL 直命中、失败列表兜底、4 跳取 `download.php` 直链，
+    产物 `PackageFileType.APKM`；按 code 单独请求 → NOT_FOUND，让位其它源）。
+  - `app/download/downloader.py`：`_expand_bundles`——`.apkm` 解包 base+split_config.*、`info.json` 权威补全
+    name/code/pname、复用 `XapkBuilder` 重建 `.xapk`；解包可能改 version_key，落地前补建目录。非 bundle 原样直通。
+  - config/factory/runtime：`PROVIDER_APKMIRROR_ENABLED`（默认关）/ `PROVIDER_APKMIRROR_PRIORITY=15`（历史 fallback）。
+- **解析锚定真实样本**：`tmp/apkmirror-eval/`（gitignore）的真实 HTML 已离线验证（slug、107 个去重版本、变体=BUNDLE、
+  `3.26.0 (1772)`、4 跳 URL、`info.json`）；committed 测试用紧凑合成 fixture 复刻同一结构。
+- 测试：`tests/providers/test_apkmirror_versions.py`（解析 9）+ `test_apkmirror.py`（provider/工厂 5）+
+  `tests/test_apkm_bundle.py`（.apkm→.xapk + info.json 回填 2）+ `tests/catalog/test_collectors_apkmirror.py`（采集 1）。全量 153 passed。
+- **未做（按计划/留待）**：真实代理端到端 smoke（步骤 7，需网络）；多变体 app 的变体排序只实现「优先 BUNDLE，否则第一个」，
+  设备级精细匹配与 catalog §3.2 选号一起做。
 
 ## 本阶段不做
 

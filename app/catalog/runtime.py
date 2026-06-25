@@ -4,6 +4,7 @@
 """
 
 from app.catalog.catalog import VersionCatalog
+from app.catalog.collectors.apkmirror import APKMirrorCollector
 from app.catalog.collectors.apkpure import APKPureCollector
 from app.catalog.collectors.aptoide import AptoideCollector
 from app.catalog.collectors.base import Collector
@@ -25,6 +26,14 @@ def build_collectors(settings: Settings) -> list[Collector]:
     if settings.provider_aptoide_enabled:
         collectors.append(
             AptoideCollector(timeout_seconds=settings.http_timeout_seconds, user_agent=settings.http_user_agent)
+        )
+    if settings.provider_apkmirror_enabled:
+        collectors.append(
+            APKMirrorCollector(
+                user_agent=settings.http_user_agent,
+                timeout_seconds=settings.http_timeout_seconds,
+                proxy=settings.upstream_proxy,
+            )
         )
     return collectors
 

@@ -25,6 +25,9 @@
   产出 `VersionRecord`（name + 可选 code + 该源稳定下载键）。
 - `app/catalog/catalog.py`（阶段 11）：`VersionCatalog.ensure_collected` 唯一枚举入口——首访全量/复访增量+TTL、
   聚合 upsert `versions`/`version_sources`、收集单飞（进程内 task + 跨 worker SQLite 租约）。
+- `app/providers/apkmirror_versions.py` + `app/providers/apkmirror.py`（阶段 15）：APKMirror 深历史源——共享抓取工具
+  （uploads 翻页/变体/4 跳）+ 纯下载 provider（产物 `.apkm`，默认关、优先级 15）。采集器 `app/catalog/collectors/apkmirror.py`。
+  下载层 `_expand_bundles` 把 `.apkm` 解包重建 `.xapk`（`info.json` 权威回填账本）。
 - `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 的入口，用 `ledger`/`versions` 补全
   name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。provider 仍各自按需自解析下载键。
 - `app/catalog/scheduler.py`（阶段 14）：`CatalogRefreshScheduler`——FastAPI lifespan 起的进程内定时刷新，
