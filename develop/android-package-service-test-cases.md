@@ -132,6 +132,11 @@
 - 条件：HTTPS 证书不可验证
 - 预期：下载失败并记录错误；不关闭证书校验
 
+### T114 大包慢网超时可配置
+
+- 条件：5 GiB 级别游戏包下载，网络持续有数据但速度慢
+- 预期：不受短默认超时影响；按 `DOWNLOAD_READ_TIMEOUT_SECONDS`、`GUNICORN_TIMEOUT_SECONDS` 和反向代理超时控制
+
 ## Provider 测试
 
 ### T201 Aptoide 最新单 APK

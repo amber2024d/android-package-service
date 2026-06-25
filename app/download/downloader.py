@@ -98,7 +98,10 @@ class PackageDownloader:
         request_headers = {"User-Agent": self.settings.http_user_agent, **(headers or {})}
         async with httpx.AsyncClient(
             follow_redirects=True,
-            timeout=httpx.Timeout(120.0, connect=30.0),
+            timeout=httpx.Timeout(
+                self.settings.download_read_timeout_seconds,
+                connect=self.settings.download_connect_timeout_seconds,
+            ),
             headers=request_headers,
         ) as client:
             async with client.stream("GET", url) as response:
@@ -118,8 +121,8 @@ class PackageDownloader:
         command = [
             "wget",
             "--no-check-certificate",
-            "--connect-timeout=60",
-            "--read-timeout=120",
+            f"--connect-timeout={self.settings.download_connect_timeout_seconds:g}",
+            f"--read-timeout={self.settings.download_read_timeout_seconds:g}",
             "--tries=3",
             "-O",
             str(part),

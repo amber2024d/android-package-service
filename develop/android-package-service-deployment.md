@@ -37,6 +37,9 @@ services:
       TEMP_DIR: /app/tmp
       NAS_MOUNT_PATH: /mnt/nas/apks
       DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
+      DOWNLOAD_READ_TIMEOUT_SECONDS: ${DOWNLOAD_READ_TIMEOUT_SECONDS:-900}
+      DOWNLOAD_CONNECT_TIMEOUT_SECONDS: ${DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-60}
+      GUNICORN_TIMEOUT_SECONDS: ${GUNICORN_TIMEOUT_SECONDS:-21600}
       PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
       PROVIDER_FAKE_FAILING_ENABLED: ${PROVIDER_FAKE_FAILING_ENABLED:-true}
       PROVIDER_APKPURE_SIGNED_ENABLED: ${PROVIDER_APKPURE_SIGNED_ENABLED:-false}
@@ -115,17 +118,18 @@ ENV DATA_DIR=/app/data
 ENV TEMP_DIR=/app/tmp
 ENV NAS_MOUNT_PATH=/mnt/nas/apks
 ENV PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+ENV GUNICORN_TIMEOUT_SECONDS=21600
 
 EXPOSE 8080
 
-CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT:-8080} --workers 2 --timeout 2700"]
+CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${PORT:-8080} --workers 2 --timeout ${GUNICORN_TIMEOUT_SECONDS:-21600}"]
 ```
 
 说明：
 
 - Playwright 镜像已经带 Chromium 和系统依赖。
 - 镜像额外安装 `wget`，APKPure Web 下载被 HTTP 客户端拦截时用浏览器头和 Referer 走轻量兜底。
-- `--timeout 2700` 对大 APK/XAPK 下载更宽松。
+- `GUNICORN_TIMEOUT_SECONDS=21600` 对 5 GiB 级别 APK/XAPK 下载更宽松。
 - worker 数不宜过高，避免同一服务器同时拉太多大包。
 - `.dockerignore` 使用白名单，只把 `app/`、`pyproject.toml` 等构建必需文件放入 context，避免 `.env`、`.venv`、`data/`、`tmp/`、`artifacts/` 被打包。
 
@@ -140,6 +144,9 @@ PORT=8080
 DATA_DIR=/app/data
 TEMP_DIR=/app/tmp
 DOWNLOAD_MAX_FILE_BYTES=5368709120
+DOWNLOAD_READ_TIMEOUT_SECONDS=900
+DOWNLOAD_CONNECT_TIMEOUT_SECONDS=60
+GUNICORN_TIMEOUT_SECONDS=21600
 
 PROVIDER_APKPURE_SIGNED_ENABLED=true
 PROVIDER_GOOGLE_PLAY_ENABLED=true
@@ -247,8 +254,8 @@ NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘�
 ```nginx
 location / {
     proxy_pass http://127.0.0.1:8080;
-    proxy_read_timeout 2700s;
-    proxy_send_timeout 2700s;
+    proxy_read_timeout 21600s;
+    proxy_send_timeout 21600s;
     proxy_request_buffering off;
     proxy_buffering off;
 }

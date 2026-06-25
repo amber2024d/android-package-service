@@ -57,6 +57,15 @@ PROVIDER_APKPURE_PROTO_ENABLED=true
 PROVIDER_APKPURE_WEB_ENABLED=true
 ```
 
+大包下载可按网络情况调大：
+
+```text
+DOWNLOAD_MAX_FILE_BYTES=5368709120
+DOWNLOAD_READ_TIMEOUT_SECONDS=900
+DOWNLOAD_CONNECT_TIMEOUT_SECONDS=60
+GUNICORN_TIMEOUT_SECONDS=21600
+```
+
 优先级数值越大越先尝试：
 
 ```text
@@ -107,7 +116,7 @@ curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 ## 排查
 
 - NAS 启动失败：检查 `NAS_HOST`、`NAS_SHARE_PATH`、账号密码、CIFS 端口和共享目录写权限。
-- 下载超时：检查代理配置，或调大反向代理 `proxy_read_timeout` / `proxy_send_timeout`。
+- 下载超时：检查代理配置，或调大 `DOWNLOAD_READ_TIMEOUT_SECONDS`、`GUNICORN_TIMEOUT_SECONDS` 和反向代理 `proxy_read_timeout` / `proxy_send_timeout`。
 - TLS/CA 错误：不要关闭证书校验；在容器或宿主机安装有效 CA，必要时设置 `SSL_CERT_FILE` 指向 CA bundle。
 - Provider 全失败：看日志里的 `request_id`、`package_name`、`provider`、`upstream_status`、`artifact_path`。
 

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     temp_dir: Path = Path("./tmp")
     nas_mount_path: Path = Path("./artifacts")
     download_max_file_bytes: int = 5 * 1024 * 1024 * 1024
+    download_read_timeout_seconds: float = 900.0
+    download_connect_timeout_seconds: float = 60.0
 
     provider_fake_enabled: bool = True
     provider_fake_failing_enabled: bool = True

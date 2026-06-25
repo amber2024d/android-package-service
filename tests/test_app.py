@@ -162,6 +162,8 @@ def test_wget_fallback_builds_original_style_command(tmp_path, monkeypatch):
     settings.data_dir = tmp_path / "data"
     settings.temp_dir = tmp_path / "tmp"
     settings.nas_mount_path = tmp_path / "nas"
+    settings.download_read_timeout_seconds = 1800
+    settings.download_connect_timeout_seconds = 90
     settings.ensure_directories()
     downloader = PackageDownloader(settings)
     part = tmp_path / "download.apk.part"
@@ -192,8 +194,8 @@ def test_wget_fallback_builds_original_style_command(tmp_path, monkeypatch):
     assert command[:6] == [
         "wget",
         "--no-check-certificate",
-        "--connect-timeout=60",
-        "--read-timeout=120",
+        "--connect-timeout=90",
+        "--read-timeout=1800",
         "--tries=3",
         "-O",
     ]
@@ -212,6 +214,8 @@ def _client(tmp_path: Path) -> TestClient:
     settings.data_dir = tmp_path / "data"
     settings.temp_dir = tmp_path / "tmp"
     settings.nas_mount_path = tmp_path / "nas"
+    settings.provider_fake_enabled = True
+    settings.provider_fake_failing_enabled = True
     settings.provider_apkpure_signed_enabled = False
     settings.provider_google_play_enabled = False
     settings.provider_aptoide_enabled = False
