@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     catalog_refresh_interval_hours: float = 5.0
     catalog_scheduler_lease_seconds: int = 900
 
+    # 主动归档（阶段 16，§11.1）：增量发现新版本即下载入 NAS 档案馆（默认关，开后会自动触发下载/占带宽）。
+    # 低并发限流、不与用户请求抢资源；失败有限重试、隔离。只面向未来留存，不回溯抓历史。
+    archive_enabled: bool = False
+    archive_concurrency: int = 1
+    archive_max_retries: int = 2
+
     # APKPure / Google Play 系 provider 的上游代理；CDN 被 Cloudflare 拦或本机出口受限时配置。
     # 格式 http://USER:PASS@HOST:PORT（HTTP/HTTPS 代理，SOCKS5 不支持，Chromium 无法用带鉴权的 SOCKS5）。
     # 留空则直连。配置后这些 provider 的全部上游流量统一走该代理：

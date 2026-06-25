@@ -459,6 +459,10 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 
 ### 11.1 主动归档（深历史的唯一可靠出路）
 
+> **落地（阶段 16）**：`app/catalog/archiver.py` 的 `CatalogArchiver` 接 catalog 的 `on_new_versions` 钩子——
+> 增量轮 diff 出本轮新出现的 downloadable 版本即经编排器下载入 NAS（幂等、限流、有限重试、失败隔离），
+> 成功走阶段 10 回填账本。首次全量建基线不回溯整窗（只面向未来留存）；`ARCHIVE_ENABLED` 默认关。
+
 实测表明上游会**裁剪旧版本**（§14），深历史「现在不存、以后更没」。所以真正能积累历史的办法是
 **面向未来主动归档**：监控发现新版本时**当即下载并入库**（趁它还在商店），把 NAS artifact 存储
 当成**自己的版本档案馆**，按 `{package}/{versionName}/{versionCode}` 永久留存。配合 §5-B 的账本，

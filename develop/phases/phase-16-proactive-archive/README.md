@@ -53,7 +53,19 @@ app/core/config.py             # ARCHIVE_ENABLED、归档并发/限流
 
 ## 当前状态
 
-- 未开始（二期）。依赖阶段 13（下载）+ 阶段 14（定时增量发现）+ 阶段 10（账本回填）。
+- **已完成（2026-06-25，二期）**。依赖阶段 13（下载）+ 阶段 14（定时增量发现）+ 阶段 10（账本回填）。
+- 落地：
+  - `app/catalog/catalog.py`：`_persist` 返回本轮**新出现**的 downloadable `(name, code)`；`_collect_once` **仅在增量轮**
+    （`not full`）把新版本交给可注入的 `on_new_versions` 钩子（首次全量是建基线、不回溯整窗），钩子失败隔离。
+  - `app/catalog/archiver.py`：`CatalogArchiver.archive_new`——经现有编排器下载新版本（幂等复用 artifact、
+    `archive_concurrency` 信号量限流、`archive_max_retries` 有限重试、单版本失败隔离、`archive_ok`/`archive_failed` 可观测），
+    编排器懒构建（仅真有新版本时）。成功自然走阶段 10 回填钩子写账本。
+  - `app/catalog/runtime.py`：`ARCHIVE_ENABLED` 开时把 `archiver.archive_new` 接为 catalog 的 `on_new_versions`。
+- config / `.env.example`：`ARCHIVE_ENABLED`（默认关）、`ARCHIVE_CONCURRENCY=1`、`ARCHIVE_MAX_RETRIES=2`。
+- 触发链：定时刷新（阶段 14）/ 下载触发的增量收集 → catalog 增量 diff 出新版本 → 归档下载入 NAS。
+- 测试：`tests/catalog/test_archiver.py`（触发/禁用/空/有限重试不抛/单失败隔离 5）+ `test_catalog.py`
+  （首全量不触发、增量只出新增 1）。全量 159 passed。
+- **未做（按计划）**：不回溯抓初始窗口的历史（只面向未来留存）；不归档 known-only；无归档淘汰/容量管理。
 
 ## 本阶段不做
 

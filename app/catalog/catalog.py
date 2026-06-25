@@ -3,7 +3,7 @@ import json
 import logging
 import os
 import socket
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from sqlite3 import Connection
@@ -54,12 +54,15 @@ class VersionCatalog:
         ttl_hours: float = 6.0,
         lease_seconds: int = 600,
         now_fn: Callable[[], datetime] | None = None,
+        on_new_versions: Callable[[str, list[tuple[str, int | None]]], Awaitable[None]] | None = None,
     ):
         self.store = store
         self.collectors = list(collectors)
         self.ttl = timedelta(hours=ttl_hours)
         self.lease = timedelta(seconds=lease_seconds)
         self._now_fn = now_fn or (lambda: datetime.now(UTC))
+        # 主动归档钩子（阶段 16）：增量轮发现本轮新出现的 downloadable 版本时回调（首次全量不触发，避免回溯全窗）。
+        self._on_new_versions = on_new_versions
         # 跨 worker 租约持有者标识：主机+pid 区分进程；id(self) 让同进程内不同实例（测试模拟双 worker）也可区分。
         self._owner = f"{socket.gethostname()}:{os.getpid()}:{id(self)}"
 
@@ -124,14 +127,22 @@ class VersionCatalog:
         try:
             full = await asyncio.to_thread(self._is_first_time, package)
             gathered = await self._gather(package, full)
+            new_versions: list[tuple[str, int | None]] = []
             if gathered:
-                await asyncio.to_thread(self._persist, package, gathered, full)
+                new_versions = await asyncio.to_thread(self._persist, package, gathered, full)
             logger.info(
-                "catalog collected %s (%s): sources=%s",
+                "catalog collected %s (%s): sources=%s new=%d",
                 package,
                 "full" if full else "incremental",
                 ",".join(sorted(gathered)),
+                len(new_versions),
             )
+            # 主动归档（阶段 16）：只在**增量**轮把本轮新出现的版本交给钩子；首次全量是建基线，不回溯整窗。
+            if new_versions and not full and self._on_new_versions is not None:
+                try:
+                    await self._on_new_versions(package, new_versions)
+                except Exception as exc:  # noqa: BLE001 — 归档钩子失败不影响收集
+                    logger.warning("on_new_versions hook failed for %s: %s", package, exc)
         finally:
             await asyncio.to_thread(self._release_lease, package)
 
@@ -147,12 +158,17 @@ class VersionCatalog:
         results = await asyncio.gather(*(run(collector) for collector in self.collectors))
         return {source: records for source, records in results if records is not None}
 
-    def _persist(self, package: str, gathered: dict[str, list[VersionRecord]], full: bool) -> None:
+    def _persist(self, package: str, gathered: dict[str, list[VersionRecord]], full: bool) -> list[tuple[str, int | None]]:
+        """落库（upsert versions/version_sources + 刷 state）。返回本轮**新出现**的 downloadable 版本 (name, code)。"""
         now_iso = self._now().isoformat()
         with closing(self.store.connect()) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
+                existing = {
+                    row[0] for row in conn.execute("SELECT version_name FROM versions WHERE package = ?", (package,))
+                }
                 cursors: dict[str, int] = {}
+                collected: dict[str, int | None] = {}
                 for source, records in gathered.items():
                     for record in records:
                         conn.execute(
@@ -171,11 +187,17 @@ class VersionCatalog:
                         )
                         if record.version_code is not None:
                             cursors[source] = max(cursors.get(source, record.version_code), record.version_code)
+                        # 同名多源：保留带 code 的那个，供归档/补全用
+                        if record.version_name not in collected or (
+                            collected[record.version_name] is None and record.version_code is not None
+                        ):
+                            collected[record.version_name] = record.version_code
                 self._update_state(conn, package, full, cursors, now_iso)
                 conn.execute("COMMIT")
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
+        return [(name, code) for name, code in collected.items() if name not in existing]
 
     def _update_state(self, conn: Connection, package: str, full: bool, cursors: dict[str, int], now_iso: str) -> None:
         row = conn.execute(

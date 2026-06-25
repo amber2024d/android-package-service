@@ -166,6 +166,28 @@ def test_single_flight_runs_one_task_per_package(tmp_path):
     assert [r[0] for r in _versions(store.db_path)] == ["1.0.0"]
 
 
+def test_on_new_versions_fires_only_on_incremental(tmp_path):
+    # 主动归档钩子（阶段 16）：首次全量建基线不触发；增量轮只把本轮新出现的版本交出去。
+    events: list[tuple[str, list]] = []
+
+    async def on_new(package, versions):
+        events.append((package, sorted(versions)))
+
+    a = FakeCollector("apkpure", [VersionRecord("1.0.0", 1)])
+    clock = Clock(START)
+    cat = VersionCatalog(
+        CatalogStore(tmp_path / "catalog.sqlite"), [a], ttl_hours=6, now_fn=clock, on_new_versions=on_new
+    )
+
+    asyncio.run(cat.ensure_collected("p"))
+    assert events == []  # 首次全量不触发（不回溯整窗）
+
+    clock.advance(hours=7)
+    a.set_records([VersionRecord("1.0.0", 1), VersionRecord("1.1.0", 2)])
+    asyncio.run(cat.ensure_collected("p"))
+    assert events == [("p", [("1.1.0", 2)])]  # 只出本轮新增 1.1.0，已有 1.0.0 不重复
+
+
 def test_cross_worker_lease_blocks_then_reclaims_after_expiry(tmp_path):
     store = CatalogStore(tmp_path / "catalog.sqlite")
     a = FakeCollector("apkpure", [VersionRecord("1.0.0", 1)])

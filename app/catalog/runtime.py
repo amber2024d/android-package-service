@@ -3,6 +3,7 @@
 供 API 路由（`get_catalog` 依赖）与定时刷新调度器（FastAPI lifespan）复用，避免两处重复装配。
 """
 
+from app.catalog.archiver import CatalogArchiver
 from app.catalog.catalog import VersionCatalog
 from app.catalog.collectors.apkmirror import APKMirrorCollector
 from app.catalog.collectors.apkpure import APKPureCollector
@@ -39,9 +40,12 @@ def build_collectors(settings: Settings) -> list[Collector]:
 
 
 def build_catalog(settings: Settings) -> VersionCatalog:
+    # 主动归档（阶段 16）：开关开时把 archiver 接为「发现新版本」钩子（增量轮触发，懒建编排器）。
+    on_new_versions = CatalogArchiver(settings).archive_new if settings.archive_enabled else None
     return VersionCatalog(
         CatalogStore(settings.catalog_db_path),
         build_collectors(settings),
         ttl_hours=settings.catalog_collect_ttl_hours,
         lease_seconds=settings.catalog_collection_lease_seconds,
+        on_new_versions=on_new_versions,
     )
