@@ -10,7 +10,8 @@
 - 全覆盖测试用例：[develop/android-package-service-test-cases.md](develop/android-package-service-test-cases.md)
 - Git 提交规范：[develop/git-commit-guidelines.md](develop/git-commit-guidelines.md)
 - 版本目录重构设计草稿（待评审）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
-- 调研文档入口：`docs/*.md`
+- APKMirror 源适配器接入设计草稿（待评审）：[develop/android-package-service-apkmirror-adapter-design.md](develop/android-package-service-apkmirror-adapter-design.md)
+- 调研文档入口：`docs/*.md`（APKMirror 上游调研：[docs/apkmirror-download-research.md](docs/apkmirror-download-research.md)）
 - 项目地图：[PROJECT_MAP.md](PROJECT_MAP.md)
 
 ## 文档约定
@@ -25,7 +26,7 @@
 - `develop/`：服务设计、接口、Provider、下载/XAPK、部署、阶段计划。
 - `develop/phases/`：每个阶段的详细开发计划和验收清单。
 - `develop/android-package-service-test-cases.md`：后续实现后的全覆盖测试矩阵。
-- `docs/`：Google Play/gpapi、Aptoide、APKPure、现有项目下载链路调研。
+- `docs/`：Google Play/gpapi、Aptoide、APKPure、APKMirror、现有项目下载链路调研。
 - `PROJECT_MAP.md`：源码入口、模块边界、运行配置和存储路径。
 - `app/`：FastAPI 服务源码；结构参考 [develop/android-package-service-design.md](develop/android-package-service-design.md) 的“项目结构”。
 - `tests/`：阶段主路径测试。

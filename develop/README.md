@@ -18,5 +18,6 @@
 设计草稿（待评审，未落地）：
 
 - [版本目录（Version Catalog）重构设计草稿](android-package-service-version-catalog-design.md)
+- [APKMirror 源适配器接入设计草稿](android-package-service-apkmirror-adapter-design.md)
 
 源码落地后的快速入口见根目录 [PROJECT_MAP.md](../PROJECT_MAP.md)。
