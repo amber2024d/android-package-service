@@ -252,6 +252,11 @@ POST https://tapi.pureapk.com/v3/get_app_detail
   解析全部历史版本（按 `data-dt-apkid` base64 解码出的包名过滤掉推广项）→ 命中后抓
   该版本下载页 `/{slug}/{packageName}/download/{versionName}` 提取预签名
   `d.apkpure.com/custom/...` CDN 链接（拿不到时回退 `d.apkpure.com/{apkid}`）。
+  - 下载页第一个按钮（class `fast-download-start-btn`）是 APKPure **一键安装器壳**
+    `/custom/com.apkpure.aegon-*.apk`（~6MB、包名 `com.apkpure.aegon`、跑起来才拉真包），
+    `download_url_from_html` 按「含 `com.apkpure.aegon` 或 class 含 `fast-download`」跳过它，
+    取后面真正的下载按钮（`download-start-btn` → `/b/XAPK|APK|APKS/...`）。不过滤会把 XAPK
+    应用误判成一个 BASE_APK 安装器壳（com.mintgames.findout 1.0.17 即此坑）。
 - 命中不到对应版本返回 `NOT_FOUND`。
 - 网页页面加载用服务 UA（`AndroidPackageService/0.1.0`）走无头 Chromium；APKPure 的
   Cloudflare 会拦截常见 Chrome UA 的无头浏览器，反而放行该服务 UA。CDN 文件下载仍用桌面

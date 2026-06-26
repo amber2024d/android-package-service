@@ -74,6 +74,26 @@ def test_download_url_from_html_matches_custom_b_and_winudf():
     assert v.download_url_from_html("<html>no download link</html>", v.WEB_BASE_URL) is None
 
 
+def test_download_url_from_html_skips_apkpure_installer_stub():
+    # 下载页第一个按钮是 APKPure 一键安装器壳（com.apkpure.aegon / fast-download），
+    # 真 XAPK 直链排在后面；必须跳过壳取真链，否则 XAPK 被顶成 BASE_APK 安装器。
+    html = (
+        '<a class="btn fast-download-start-btn" '
+        'href="https://d.apkpure.com/custom/com.apkpure.aegon-1015768.apk?_fn=y">install</a>'
+        '<a class="btn download-start-btn" '
+        'href="https://d.apkpure.com/b/XAPK/com.mintgames.findout?versionCode=17&nc=arm64-v8a">dl</a>'
+    )
+    assert (
+        v.download_url_from_html(html, v.WEB_BASE_URL)
+        == "https://d.apkpure.com/b/XAPK/com.mintgames.findout?versionCode=17&nc=arm64-v8a"
+    )
+    # 单 APK 应用的合法 /custom/ 直链（非 aegon、无 fast-download）不应被误杀。
+    assert (
+        v.download_url_from_html('<a href="https://d.apkpure.com/custom/x.apk?_fn=y">d</a>', v.WEB_BASE_URL)
+        == "https://d.apkpure.com/custom/x.apk?_fn=y"
+    )
+
+
 def test_file_type_from_order_and_default():
     assert v.file_type_from("XAPK", "x.apk", provider_id="t") == PackageFileType.XAPK
     assert v.file_type_from(None, "https://d/custom/a.apk", None, provider_id="t") == PackageFileType.BASE_APK

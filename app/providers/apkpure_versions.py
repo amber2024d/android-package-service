@@ -198,12 +198,27 @@ def search_result_url(html: str, base_url: str, package_name: str, *, provider_i
     fail(provider_id, ErrorCode.NOT_FOUND, "APKPure web search had no exact package match.")
 
 
+def _is_installer_stub(href: str, css_class: str) -> bool:
+    """识别 APKPure「一键安装器」壳：下载页第一个按钮（class=fast-download-start-btn）指向
+    ``/custom/com.apkpure.aegon-*.apk``，那是个 ~6MB 的 APKPure 安装器、包名是 APKPure 自己的
+    ``com.apkpure.aegon``，跑起来才去拉真包，绝不是目标 app。XAPK 应用尤其会被它顶成一个
+    BASE_APK 安装器壳（见 com.mintgames.findout 1.0.17），必须跳过它取后面真正的下载按钮。"""
+    return "com.apkpure.aegon" in href or "fast-download" in css_class.lower()
+
+
 def download_url_from_html(html: str, base_url: str) -> str | None:
-    """从下载页里提取真实的 CDN 下载链接（winudf / apkpure 的 /b/ 或 /custom/）。"""
+    """从下载页里提取真实的 CDN 下载链接（winudf / apkpure 的 /b/ 或 /custom/）。
+
+    跳过 APKPure 安装器壳（见 ``_is_installer_stub``）：它的 ``/custom/...apk`` 链接排在真链
+    （``download-start-btn`` → ``/b/XAPK|APK|APKS/...``）前面，不过滤会把 XAPK 误判成 BASE_APK。
+    """
     for link in parse_links(html).links:
         href = unescape(link.get("href") or "")
-        if "apkpure.com/b/" in href or "apkpure.com/custom/" in href or "winudf.com" in href:
-            return urljoin(base_url, href)
+        if not ("apkpure.com/b/" in href or "apkpure.com/custom/" in href or "winudf.com" in href):
+            continue
+        if _is_installer_stub(href, link.get("class") or ""):
+            continue
+        return urljoin(base_url, href)
     match = CDN_RE.search(unescape(html))
     return match.group(0) if match else None
 

@@ -232,7 +232,8 @@
 - 预期：按 `data-dt-apkid` base64 解码出的包名过滤推广项、按 `versionCode` 去重；`select_version`
   优先 `versionCode` 其次 `versionName`，命中不到返回 `None`
 - 预期：`chromium_proxy` 正确拆出 server/username/password；`download_url_from_html` 识别
-  `/custom/`、`/b/`、winudf 链接
+  `/custom/`、`/b/`、winudf 链接，并**跳过 APKPure 一键安装器壳**（含 `com.apkpure.aegon` 或
+  class 含 `fast-download` 的 `/custom/...apk`），取后面真正的下载按钮（XAPK 应用尤其会被壳顶成 BASE_APK）
 
 ### T218 上游代理（UPSTREAM_PROXY）
 
