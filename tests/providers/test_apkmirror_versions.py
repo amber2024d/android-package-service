@@ -62,6 +62,20 @@ def test_parse_app_slug_no_match_raises_not_found():
     assert exc.value.provider_error.error == ErrorCode.NOT_FOUND
 
 
+def test_parse_app_slug_unrelated_results_do_not_guess():
+    # APKMirror 不收录该包时返回的「猜你想找」无关结果（实测 Thunderbird Beta）：
+    # 没有任何 block 内嵌目标包名 → 必须 NOT_FOUND，绝不能兜底取第一条把别的 app 灌进来（污染事故回归）。
+    unrelated = """
+    <div class="appRow">
+      <img alt="Thunderbird Beta" src="/ap_resize.php?src=..._org.mozilla.thunderbird_beta.png">
+      <a class="fontBlack" href="/apk/mozilla-thunderbird/thunderbird-beta-for-testers/thunderbird-beta-for-testers-21-0b1-release/">Thunderbird Beta 21.0b1</a>
+    </div>
+    """
+    with pytest.raises(ProviderException) as exc:
+        m.parse_app_slug(unrelated, PKG, provider_id="apkmirror")
+    assert exc.value.provider_error.error == ErrorCode.NOT_FOUND
+
+
 def test_parse_uploads_versions_dedups_and_filters_and_dates():
     versions = m.parse_uploads_versions(UPLOADS_HTML, PKG, "vita-mahjong")
     by_name = {v.version_name: v for v in versions}

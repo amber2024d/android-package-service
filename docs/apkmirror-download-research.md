@@ -32,6 +32,9 @@ APKMirror 作为「更深的 downloadable 源」实测可用：对长历史 app 
 搜索定位 slug：
   GET /?post_type=app_release&searchtype=apk&s={package}
        → /apk/{dev-slug}/{app-slug}/...-release/ → 取 dev-slug、app-slug（vita-studio / vita-mahjong）
+       ⚠ 必须按包名精确匹配：结果行 <img src> 内嵌 {hash}_{package}.png；匹配不到只能 NOT_FOUND。
+         APKMirror 不收录该包时会返回「猜你想找」的无关热门 app（实测 Thunderbird Beta / stickman-vs-zombies），
+         绝不能取第一条兜底——否则把别的 app 整段历史灌进该包目录（污染事故，见 parse_app_slug）。
 
 列全部版本（app 主页只列最近 10 个，必须走 uploads）：
   GET /uploads/?appcategory={app-slug}            （第 1 页，wp-pagenavi 给 "Page 1 of M"）

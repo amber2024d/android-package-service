@@ -66,20 +66,17 @@ class APKMirrorDownload:
 def parse_app_slug(html: str, package_name: str, *, provider_id: str) -> tuple[str, str]:
     """从搜索结果页解析目标 app 的 (dev_slug, app_slug)。
 
-    优先匹配「图标/区块内嵌了该包名」的结果行；匹配不到时退回第一条 release 链接（APKMirror 对
-    全包名搜索通常把精确匹配排首位）。
+    只认「结果行图标 URL 内嵌该包名」的精确匹配——APKMirror 搜索结果行的 ``<img src>`` 形如
+    ``{hash}_{package}.png``（见 APKPure 同源做法 ``search_result_url``）。匹配不到就 NOT_FOUND：
+    APKMirror 对它不收录的包会返回「猜你想找」的无关热门 app（实测 Thunderbird Beta 等），
+    **绝不能盲目取第一条兜底**，否则会把另一个 app 的整段历史版本灌进该包的目录（污染事故根因）。
     """
-    blocks = _split_app_rows(html)
-    for block in blocks:
+    for block in _split_app_rows(html):
         if package_name in block:
             slug = _slug_from_block(block)
             if slug:
                 return slug
-    for block in blocks:
-        slug = _slug_from_block(block)
-        if slug:
-            return slug
-    fail(provider_id, ErrorCode.NOT_FOUND, "APKMirror search had no matching app.")
+    fail(provider_id, ErrorCode.NOT_FOUND, "APKMirror search had no exact package match.")
 
 
 def parse_uploads_versions(html: str, package_name: str, app_slug: str) -> list[APKMirrorVersion]:
