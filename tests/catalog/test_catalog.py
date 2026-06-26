@@ -11,9 +11,18 @@ START = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class FakeCollector(Collector):
-    def __init__(self, source: str, records: list[VersionRecord], *, fail: bool = False, downloadable: bool = True):
+    def __init__(
+        self,
+        source: str,
+        records: list[VersionRecord],
+        *,
+        fail: bool = False,
+        downloadable: bool = True,
+        provides_release_date: bool = False,
+    ):
         self.source = source
         self.downloadable = downloadable
+        self.provides_release_date = provides_release_date
         self._records = list(records)
         self.fail = fail
         self.calls = 0
@@ -169,19 +178,29 @@ def test_single_flight_runs_one_task_per_package(tmp_path):
 
 def test_known_only_source_stored_not_downloadable(tmp_path):
     # AppMagic 这类 known-only 源（downloadable=False）：入库 downloadable=0、不出 /versions、进缺口清单。
+    # 发布时间以 AppMagic（provides_release_date）为准，写入 release_date。
     downloadable = FakeCollector("apkpure", [VersionRecord("3.0.0", 300)])
     known = FakeCollector(
         "appmagic",
         [VersionRecord("3.0.0", None, release_date="2026-01-01"), VersionRecord("2.0.0", None, release_date="2025-06-01")],
         downloadable=False,
+        provides_release_date=True,
     )
     cat, db = _catalog(tmp_path, [downloadable, known])
 
     asyncio.run(cat.ensure_collected("p"))
 
-    # 3.0.0 两源都有 → downloadable=1（MAX 合并）；2.0.0 只 known → downloadable=0
-    assert cat.list_downloadable("p") == [("3.0.0", 300)]
-    assert [name for name, _first, _last in cat.list_known_only("p")] == ["2.0.0"]
+    # 3.0.0 两源都有 → downloadable=1（MAX 合并）+ AppMagic 发布时间；2.0.0 只 known → downloadable=0
+    assert cat.list_downloadable("p") == [("3.0.0", 300, "2026-01-01")]
+    assert cat.list_known_only("p") == [("2.0.0", "2025-06-01")]
+
+
+def test_release_date_only_from_authoritative_source(tmp_path):
+    # 非权威源（APKPure，带自己的日期）不写 release_date；只有 AppMagic 权威源写入。
+    apkpure = FakeCollector("apkpure", [VersionRecord("1.0.0", 1, release_date="2020-01-01")])  # 非权威
+    cat, _ = _catalog(tmp_path, [apkpure])
+    asyncio.run(cat.ensure_collected("p"))
+    assert cat.list_downloadable("p") == [("1.0.0", 1, None)]  # APKPure 的日期不进 release_date
 
 
 def test_archive_events_exclude_known_only(tmp_path):

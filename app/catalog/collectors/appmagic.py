@@ -25,6 +25,7 @@ class AppMagicCollector(Collector):
 
     source = "appmagic"
     downloadable = False
+    provides_release_date = True  # 发布时间以 AppMagic 为准
 
     def __init__(
         self,

@@ -85,6 +85,7 @@ class DownloadPlan(ApiModel):
 class CatalogVersion(ApiModel):
     version_name: str
     version_code: int | None = None
+    release_date: str | None = None  # 发布时间，以 AppMagic 为准
 
 
 class CatalogVersionsResponse(ApiModel):

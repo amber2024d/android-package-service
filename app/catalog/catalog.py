@@ -17,11 +17,13 @@ logger = logging.getLogger(__name__)
 
 # versions：按 (package, version_name) 归并；code/日期取 COALESCE（已有不被 NULL 覆盖）；
 # downloadable 取并集（MAX）——任一可下载源命中即 1，known-only 源（AppMagic）只贡献 0、不下调已有的 1。
+# release_date（发布时间）只由 AppMagic 写入（非权威源传 NULL，COALESCE 不动），AppMagic 复采则覆盖为最新。
 _VERSIONS_UPSERT = """
-INSERT INTO versions (package, version_name, version_code, first_seen_date, last_seen_date, downloadable)
-VALUES (?, ?, ?, ?, ?, ?)
+INSERT INTO versions (package, version_name, version_code, release_date, first_seen_date, last_seen_date, downloadable)
+VALUES (?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(package, version_name) DO UPDATE SET
   version_code = COALESCE(excluded.version_code, versions.version_code),
+  release_date = COALESCE(excluded.release_date, versions.release_date),
   first_seen_date = COALESCE(versions.first_seen_date, excluded.first_seen_date),
   last_seen_date = COALESCE(excluded.last_seen_date, versions.last_seen_date),
   downloadable = MAX(versions.downloadable, excluded.downloadable)
@@ -87,32 +89,32 @@ class VersionCatalog:
             if self._inflight.get(key) is task:
                 self._inflight.pop(key, None)
 
-    def list_downloadable(self, package: str) -> list[tuple[str, int | None]]:
-        """对外 `/versions` 的数据源：只出 `downloadable=1` 的 `(versionName, versionCode)`，按版本号降序（最新在前）。
+    def list_downloadable(self, package: str) -> list[tuple[str, int | None, str | None]]:
+        """对外 `/versions` 的数据源：只出 `downloadable=1` 的 `(versionName, versionCode, releaseDate)`，按版本号降序（最新在前）。
 
-        known-only（`downloadable=0`）不出（§B 决策①）。纯读库，不触发收集/刷新。
+        `releaseDate` 是 AppMagic 权威发布时间（无 AppMagic 覆盖则 None）。known-only（`downloadable=0`）不出
+        （§B 决策①）。纯读库，不触发收集/刷新。
         """
         with closing(self.store.connect()) as conn:
             rows = conn.execute(
-                "SELECT version_name, version_code FROM versions WHERE package = ? AND downloadable = 1",
+                "SELECT version_name, version_code, release_date FROM versions WHERE package = ? AND downloadable = 1",
                 (package,),
             ).fetchall()
         rows.sort(key=lambda row: version_sort_key(row[0]), reverse=True)
-        return [(name, code) for name, code in rows]
+        return [(name, code, release_date) for name, code, release_date in rows]
 
-    def list_known_only(self, package: str) -> list[tuple[str, str | None, str | None]]:
-        """缺口对账（内部，§17 步骤 4）：`downloadable=0` 的 known-only 版本 `(name, first_date, last_date)`，按版本号降序。
+    def list_known_only(self, package: str) -> list[tuple[str, str | None]]:
+        """缺口对账（内部，§17 步骤 4）：`downloadable=0` 的 known-only 版本 `(name, releaseDate)`，按版本号降序。
 
-        「知道发布过、但当前无源可下」的清单——供监控告警 / 主动归档优先级，**不对外**。
+        「知道发布过、但当前无源可下」的清单（发布时间以 AppMagic 为准）——供监控告警 / 主动归档优先级，**不对外**。
         """
         with closing(self.store.connect()) as conn:
             rows = conn.execute(
-                "SELECT version_name, first_seen_date, last_seen_date FROM versions "
-                "WHERE package = ? AND downloadable = 0",
+                "SELECT version_name, release_date FROM versions WHERE package = ? AND downloadable = 0",
                 (package,),
             ).fetchall()
         rows.sort(key=lambda row: version_sort_key(row[0]), reverse=True)
-        return [(name, first, last) for name, first, last in rows]
+        return [(name, release_date) for name, release_date in rows]
 
     # ---- 决策：要不要收集 ----------------------------------------------------- #
 
@@ -177,6 +179,7 @@ class VersionCatalog:
         """落库（upsert versions/version_sources + 刷 state）。返回本轮**新出现**的 downloadable 版本 (name, code)。"""
         now_iso = self._now().isoformat()
         downloadable_flags = {collector.source: collector.downloadable for collector in self.collectors}
+        release_date_sources = {collector.source for collector in self.collectors if collector.provides_release_date}
         with closing(self.store.connect()) as conn:
             conn.execute("BEGIN IMMEDIATE")
             try:
@@ -188,6 +191,8 @@ class VersionCatalog:
                 downloadable_names: set[str] = set()
                 for source, records in gathered.items():
                     source_downloadable = 1 if downloadable_flags.get(source, True) else 0
+                    # 发布时间只认权威源（AppMagic）；其它源传 NULL，不污染 release_date。
+                    authoritative_date = source in release_date_sources
                     for record in records:
                         conn.execute(
                             _VERSIONS_UPSERT,
@@ -195,6 +200,7 @@ class VersionCatalog:
                                 package,
                                 record.version_name,
                                 record.version_code,
+                                record.release_date if authoritative_date else None,
                                 record.release_date,
                                 record.last_release_date or record.release_date,
                                 source_downloadable,

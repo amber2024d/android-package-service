@@ -34,10 +34,12 @@ def _client(tmp_path: Path) -> tuple[TestClient, Path]:
 def _seed(db: Path, *, package: str, versions, collected: bool) -> None:
     CatalogStore(db)  # 确保 schema
     with closing(sqlite3.connect(db)) as conn:
-        for name, code, downloadable in versions:
+        for row in versions:
+            name, code, downloadable, *rest = row
+            release_date = rest[0] if rest else None
             conn.execute(
-                "INSERT INTO versions(package, version_name, version_code, downloadable) VALUES(?,?,?,?)",
-                (package, name, code, downloadable),
+                "INSERT INTO versions(package, version_name, version_code, downloadable, release_date) VALUES(?,?,?,?,?)",
+                (package, name, code, downloadable, release_date),
             )
         if collected:
             conn.execute(
@@ -81,7 +83,8 @@ def test_versions_lists_downloadable_only_and_sorted(tmp_path):
     _seed(
         db,
         package="com.x",
-        versions=[("3.0.0", 1772, 1), ("2.9.0", 33, 1), ("1.0.0", None, 0)],  # 1.0.0 是 known-only
+        # (name, code, downloadable, release_date?)
+        versions=[("3.0.0", 1772, 1, "2026-06-22"), ("2.9.0", 33, 1), ("1.0.0", None, 0)],  # 1.0.0 是 known-only
         collected=True,
     )
     resp = client.get("/api/v1/android/apps/com.x/versions")
@@ -89,9 +92,9 @@ def test_versions_lists_downloadable_only_and_sorted(tmp_path):
     body = resp.json()
     assert body["packageName"] == "com.x"
     assert body["versions"] == [
-        {"versionName": "3.0.0", "versionCode": 1772},
-        {"versionName": "2.9.0", "versionCode": 33},
-    ]  # 只出 downloadable，按版本号降序；known-only 不出
+        {"versionName": "3.0.0", "versionCode": 1772, "releaseDate": "2026-06-22"},
+        {"versionName": "2.9.0", "versionCode": 33, "releaseDate": None},
+    ]  # 只出 downloadable，按版本号降序，带 AppMagic 发布时间；known-only 不出
 
 
 def test_versions_first_collect_blocks_then_reads_db(tmp_path):

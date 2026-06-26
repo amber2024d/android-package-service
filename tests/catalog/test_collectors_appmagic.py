@@ -29,8 +29,10 @@ def _collector(session: AppMagicSession) -> AppMagicCollector:
 
 
 def test_is_known_only_source():
-    assert AppMagicCollector(AppMagicSession("cf", "tok")).downloadable is False
-    assert AppMagicCollector(AppMagicSession("cf", "tok")).source == "appmagic"
+    collector = AppMagicCollector(AppMagicSession("cf", "tok"))
+    assert collector.downloadable is False
+    assert collector.source == "appmagic"
+    assert collector.provides_release_date is True  # 发布时间以 AppMagic 为准
 
 
 def test_records_dedup_by_name_with_first_last_dates():

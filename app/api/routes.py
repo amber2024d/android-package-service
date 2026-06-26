@@ -141,8 +141,8 @@ async def list_app_versions(
     # 已跟踪包直接读库返回。
     await catalog.ensure_collected(package_name, need_history=False)
     versions = [
-        CatalogVersion(version_name=name, version_code=code)
-        for name, code in catalog.list_downloadable(package_name)
+        CatalogVersion(version_name=name, version_code=code, release_date=release_date)
+        for name, code, release_date in catalog.list_downloadable(package_name)
     ]
     log_event(
         logger,

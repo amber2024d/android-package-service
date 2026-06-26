@@ -87,11 +87,13 @@ GET /api/v1/android/apps/{packageName}/versions
 {
   "packageName": "com.vitastudio.mahjong",
   "versions": [
-    { "versionName": "3.26.0", "versionCode": 1772 },
-    { "versionName": "2.9.0", "versionCode": 33 }
+    { "versionName": "3.26.0", "versionCode": 1772, "releaseDate": "2026-06-22" },
+    { "versionName": "2.9.0", "versionCode": 33, "releaseDate": null }
   ]
 }
 ```
+
+- `releaseDate`：版本发布时间，**以 AppMagic 为准**（known 时间线源）。未被 AppMagic 覆盖到的版本为 `null`。
 
 ## 下载最终安装包
 

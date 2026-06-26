@@ -128,7 +128,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                         "path": {"packageName": "Android 包名"},
                     },
                     "response": {
-                        "200": "{ packageName, versions: [{ versionName, versionCode }] }（按目录内顺序，可能为空表示暂未采到可下载版本）",
+                        "200": "{ packageName, versions: [{ versionName, versionCode, releaseDate }] }（releaseDate 为发布时间，以 AppMagic 为准、未采到则 null；按版本号降序，可能为空表示暂未采到可下载版本）",
                     },
                     "example_curl": f"curl '{base_url}/api/v1/android/apps/org.fdroid.fdroid/versions'",
                 },
@@ -219,7 +219,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "steps": [
                     "1. GET /api/v1/android/apps/{包名}/versions",
                     "2. 首次访问会阻塞采集一次（稍慢），之后读库很快",
-                    "3. 返回 versions 数组，每项含 versionName 和（可选）versionCode",
+                    "3. 返回 versions 数组，每项含 versionName、（可选）versionCode、releaseDate（发布时间，以 AppMagic 为准、未采到则 null）",
                     "4. versions 为空表示版本目录暂未采到该包的可下载版本",
                 ],
                 "example_curl": f"curl '{base_url}/api/v1/android/apps/org.fdroid.fdroid/versions'",

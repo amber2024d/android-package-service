@@ -51,8 +51,11 @@
 **`GET /versions?package=...`** → 只列 downloadable 版本（决策①）：
 
 ```json
-{ "packageName": "...", "versions": [ {"versionName": "3.26.0", "versionCode": 1772}, ... ] }
+{ "packageName": "...", "versions": [ {"versionName": "3.26.0", "versionCode": 1772, "releaseDate": "2026-06-22"}, ... ] }
 ```
+
+> `releaseDate`（发布时间）以 AppMagic 为准（`versions.release_date` 列，仅 `provides_release_date` 源写入）；
+> 无 AppMagic 覆盖则 null。
 
 - known-only（只知有此版本、无源可下、常无 code）**不进对外接口**，避免「列出来 = 能下」的误解（§14 教训）；
   至多留在内部库供归档/监控。

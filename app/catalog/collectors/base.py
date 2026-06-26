@@ -29,10 +29,14 @@ class Collector(ABC):
 
     `downloadable`：本源版本是否可下载。下载源（APKPure/Aptoide/APKMirror）True；known-only 源
     （AppMagic，只知发布过、无源可下、§7）False——入库 `downloadable=0`、不进对外 `/versions`。
+
+    `provides_release_date`：本源是否为版本「发布时间」的权威来源。仅 AppMagic 为 True——其 `release_date`
+    写入 `versions.release_date`、覆盖为准；其它源不动该字段（避免各源观测日期污染发布时间）。
     """
 
     source: str
     downloadable: bool = True
+    provides_release_date: bool = False
 
     @abstractmethod
     async def collect(self, package: str) -> list[VersionRecord]:

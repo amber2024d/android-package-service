@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS versions (
     package TEXT NOT NULL,
     version_name TEXT NOT NULL,
     version_code INTEGER,
+    release_date TEXT,        -- 版本发布时间，以 AppMagic 为准（provides_release_date 源写入）
     first_seen_date TEXT,
     last_seen_date TEXT,
     downloadable INTEGER NOT NULL DEFAULT 1,
