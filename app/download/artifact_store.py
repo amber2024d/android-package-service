@@ -32,12 +32,10 @@ class ArtifactStore:
         try:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
             artifact = Path(metadata["artifact_path"])
-            self.verifier.verify_artifact(
-                artifact,
-                plan,
-                size=metadata.get("size"),
-                hashes=metadata.get("hashes"),
-            )
+            # 复用快路径：只核对存在 + 大小（stat）+ manifest 版本（读 zip 中央目录，便宜）；
+            # **不传 hashes**，避免每次复用都把整个产物从 NAS 读出来重算 md5/sha1/sha256
+            # （150MB XAPK 在慢盘上能拖到分钟级；哈希写入时已算过，这里只防文件被换/截断）。
+            self.verifier.verify_artifact(artifact, plan, size=metadata.get("size"))
             return artifact
         except Exception:
             return None
