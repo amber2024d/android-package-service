@@ -227,6 +227,7 @@ def test_factory_registers_signed_provider_when_enabled(tmp_path):
         provider_aptoide_enabled=False,
         provider_apkpure_proto_enabled=False,
         provider_apkpure_web_enabled=False,
+        provider_apkmirror_enabled=False,
     )
 
     assert list(ProviderFactory(settings).providers) == ["apkpure-signed"]
