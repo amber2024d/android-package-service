@@ -140,6 +140,12 @@ collection_state(                           -- 驱动「全量 vs 增量」
 > **落地（阶段 12）**：name↔code **补全/选源/路由**已由 `DownloadOrchestrator`（`app/catalog/orchestrator.py`）实现——
 > 先查 `ledger` 权威、再查 `versions` 采集（有就用、查不到不阻塞）。`/download` 经编排器走通。
 > provider 接口**未**收敛为纯下载（避免冷目录「按 code 下历史版」回归，顺延至阶段 13 目录预热后，见阶段 12 README 范围决策）。
+>
+> **补强（复用稳定化）**：`/files` 也改经编排器（`orchestrator.plan`）做同一套补全，使两端 `version_code` 报告与产物缓存
+> key 一致。`/download` 在调 `get_download_plan`（APKPure 历史版要起无头 Chromium，很重）**之前**先探产物缓存
+> （`downloader.existing`）：指定版本时按 `versionCode` 与 `versionName` 两种 `version_key` 写法各探一次，命中即复用、
+> 跳过整段抓取与重下。两种 key 都探是因为同一逻辑版本会被写成两种目录名（冷目录首下按名、目录暖/账本回填后按号），
+> 只探一种会「同版本两种 key 而重下」。latest（无版本）不在此短路，避免复用过期的最新版产物。
 
 - name→code（Google 下载刚需）：先查 `ledger`（权威、不过期），再查带 code 的 `version_sources`；都没有则该版本对
   Google 不可下，降级到 APKPure/APKMirror 按 name 下。

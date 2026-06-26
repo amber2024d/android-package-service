@@ -6,7 +6,7 @@ from sqlite3 import Connection
 from app.catalog.store import CatalogStore
 from app.core.logging import log_event
 from app.domain.errors import AggregateProviderError, ProviderError, ProviderException
-from app.domain.models import AndroidPackageRequest
+from app.domain.models import AndroidPackageRequest, DownloadPlan
 from app.download.downloader import PackageDownloader
 from app.providers.factory import ProviderFactory
 
@@ -30,6 +30,11 @@ class DownloadOrchestrator:
         self.factory = factory
         self.downloader = downloader
 
+    async def plan(self, request: AndroidPackageRequest, request_id: str | None = None) -> DownloadPlan:
+        """`/files` 用：与下载走同一套名↔号补全，让两端的 version_code 报告与产物缓存 key 一致。"""
+        completed = self._complete(request)
+        return await self.factory.get_download_plan(completed, request_id=request_id)
+
     async def download(self, request: AndroidPackageRequest, request_id: str | None = None) -> Path:
         completed = self._complete(request)
         lock_version_key = (
@@ -43,6 +48,11 @@ class DownloadOrchestrator:
 
         errors: list[ProviderError] = []
         for provider in providers:
+            cached = self._existing_artifact(provider.id, completed)
+            if cached is not None:
+                # 命中已下产物：跳过 provider 抓取与重下，直接复用（决策①②）。
+                self._log_reuse(completed, provider.id, cached, request_id)
+                return cached
             try:
                 plan = await provider.get_download_plan(completed)
                 artifact = await self.downloader.download(plan, request_id=request_id, lock_version_key=lock_version_key)
@@ -62,6 +72,56 @@ class DownloadOrchestrator:
                 errors.append(exc.provider_error)
                 self._log_failures(completed, [exc.provider_error], request_id)
         raise AggregateProviderError(errors)
+
+    # ---- 抓取前先探已有产物（决策①②） --------------------------------------- #
+
+    def _existing_artifact(self, provider_id: str, completed: AndroidPackageRequest) -> Path | None:
+        """指定版本时，抓取前先探这个 provider 已落 NAS 的产物，命中即复用、跳过整段 provider 解析。
+
+        同一逻辑版本的 ``version_key`` 可能被写成 ``versionCode`` 或 ``versionName`` 两种
+        （冷目录首下按名、暖后按号；ledger 回填又可能补出号），所以按 code、name 各探一次，
+        消除「同版本两种 key 而重下」。latest（无版本）不在此短路，避免复用过期的最新版产物。
+        """
+        candidates: list[tuple[int | None, str | None]] = []
+        if completed.version_code is not None:
+            candidates.append((completed.version_code, completed.version_name))
+        if completed.version_name is not None:
+            candidates.append((None, completed.version_name))
+
+        seen: set[str] = set()
+        for code, name in candidates:
+            probe = DownloadPlan(
+                package_name=completed.package_name,
+                app_name=completed.package_name,
+                version_code=code,
+                version_name=name,
+                provider=provider_id,
+                files=[],
+            )
+            if probe.version_key in seen:
+                continue
+            seen.add(probe.version_key)
+            artifact = self.downloader.existing(probe)
+            if artifact is not None:
+                return artifact
+        return None
+
+    def _log_reuse(
+        self, request: AndroidPackageRequest, provider_id: str, artifact: Path, request_id: str | None
+    ) -> None:
+        # 与下载层 existing() 命中同形态：artifact_reused（产物级）+ download_ok（请求级）。
+        for event, status in (("artifact_reused", "reused"), ("download_ok", "reused")):
+            log_event(
+                logger,
+                event,
+                request_id=request_id,
+                package_name=request.package_name,
+                version_code=request.version_code,
+                version_name=request.version_name,
+                provider=provider_id,
+                upstream_status=status,
+                artifact_path=str(artifact),
+            )
 
     # ---- name↔code 补全 ------------------------------------------------------- #
 

@@ -109,12 +109,12 @@ async def get_files(
     version_code: int | None = Query(default=None, alias="versionCode"),
     version_name: str | None = Query(default=None, alias="versionName"),
     provider: str | None = Query(default=None),
-    factory: ProviderFactory = Depends(get_provider_factory),
+    orchestrator: DownloadOrchestrator = Depends(get_orchestrator),
 ):
     request_id = request_id_for(http_request)
     request = request_from_query(package_name, version_code, version_name, provider)
     try:
-        result = await factory.get_download_plan(request, request_id=request_id)
+        result = await orchestrator.plan(request, request_id=request_id)
         log_event(
             logger,
             "download_plan_ok",

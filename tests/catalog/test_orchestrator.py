@@ -49,8 +49,14 @@ class FakeFactory:
 
 
 class FakeDownloader:
-    def __init__(self):
+    def __init__(self, existing=None):
         self.calls: list[tuple[DownloadPlan, str | None]] = []
+        self.probed: list[str] = []  # 记录被探过的 version_key
+        self._existing = existing  # callable(plan)->Path|None，默认无缓存
+
+    def existing(self, plan):
+        self.probed.append(plan.version_key)
+        return self._existing(plan) if self._existing else None
 
     async def download(self, plan, request_id=None, *, lock_version_key=None):
         self.calls.append((plan, lock_version_key))
@@ -136,6 +142,47 @@ def test_latest_request_skips_completion(tmp_path):
     seen = provider.seen[0]
     assert seen.version_code is None and seen.version_name is None
     assert downloader.calls[0][1] is None
+
+
+def test_reuses_existing_artifact_and_skips_provider(tmp_path):
+    # 命中已下产物 -> 不调 provider.get_download_plan、不再下载，直接复用（决策①②）。
+    store = _store(tmp_path, ledger=[("p", "1.2.1", 116)])
+    provider = FakeProvider("apkpure-signed")
+    downloader = FakeDownloader(existing=lambda plan: Path("/artifacts/cached.apk"))
+    orch = DownloadOrchestrator(store, FakeFactory([provider]), downloader)
+
+    artifact = asyncio.run(orch.download(AndroidPackageRequest(package_name="p", version_name="1.2.1")))
+
+    assert str(artifact) == "/artifacts/cached.apk"
+    assert provider.seen == []  # 没跑 provider 抓取
+    assert downloader.calls == []  # 没真下载
+
+
+def test_reuse_probes_both_code_and_name_keys(tmp_path):
+    # 冷目录时按 name "1.2.1" 落过产物；现在按号请求会补全出 name，应探到 name-key 命中、不重下。
+    store = _store(tmp_path, ledger=[("p", "1.2.1", 116)])
+    provider = FakeProvider("apkpure-signed")
+    downloader = FakeDownloader(existing=lambda plan: Path("/a/x.apk") if plan.version_key == "1.2.1" else None)
+    orch = DownloadOrchestrator(store, FakeFactory([provider]), downloader)
+
+    artifact = asyncio.run(orch.download(AndroidPackageRequest(package_name="p", version_code=116)))
+
+    assert str(artifact) == "/a/x.apk"
+    assert downloader.probed == ["116", "1.2.1"]  # code、name 两种 key 各探一次
+    assert provider.seen == []
+
+
+def test_latest_request_does_not_probe_cache(tmp_path):
+    # latest（无版本）不在抓取前短路，避免复用过期最新版产物。
+    store = _store(tmp_path)
+    provider = FakeProvider("apkpure-signed")
+    downloader = FakeDownloader(existing=lambda plan: Path("/should/not/be/used.apk"))
+    orch = DownloadOrchestrator(store, FakeFactory([provider]), downloader)
+
+    asyncio.run(orch.download(AndroidPackageRequest(package_name="p")))
+
+    assert downloader.probed == []  # 没探缓存
+    assert provider.seen  # 正常走 provider
 
 
 def test_fallback_to_next_provider(tmp_path):

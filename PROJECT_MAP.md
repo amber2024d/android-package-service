@@ -28,8 +28,9 @@
 - `app/providers/apkmirror_versions.py` + `app/providers/apkmirror.py`（阶段 15）：APKMirror 深历史源——共享抓取工具
   （uploads 翻页/变体/4 跳）+ 纯下载 provider（产物 `.apkm`，默认关、优先级 15）。采集器 `app/catalog/collectors/apkmirror.py`。
   下载层 `_expand_bundles` 把 `.apkm` 解包重建 `.xapk`（`info.json` 权威回填账本）。
-- `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 的入口，用 `ledger`/`versions` 补全
-  name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。provider 仍各自按需自解析下载键。
+- `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 与 `/files`（`plan()`）的入口，用 `ledger`/`versions`
+  补全 name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。指定版本时**抓取前先探已有产物**
+  （`downloader.existing`，按 code/name 两种 version_key 各探一次），命中即复用、跳过整段 provider 抓取与重下。provider 仍各自按需自解析下载键。
 - `app/catalog/scheduler.py`（阶段 14）：`CatalogRefreshScheduler`——FastAPI lifespan 起的进程内定时刷新，
   `scheduler_lock` 选主（多 worker 只一个跑、租约超时重抢），每 5h 对已跟踪包逐包强制增量、单包失败隔离。
 - `app/catalog/archiver.py`（阶段 16）：`CatalogArchiver`——catalog 增量发现新版本时（`on_new_versions` 钩子）经编排器

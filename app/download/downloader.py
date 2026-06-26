@@ -73,6 +73,10 @@ class PackageDownloader:
             await self._backfill_ledger(plan, artifact, request_id)
             return artifact
 
+    def existing(self, plan: DownloadPlan) -> Path | None:
+        """已落 NAS 的产物就返回它，否则 None（校验失败也视作无）。供编排器在抓取前先探缓存。"""
+        return self.store.existing(plan)
+
     def _lock_key(self, plan: DownloadPlan, lock_version_key: str | None) -> tuple[str, str, str]:
         """下载锁 key（§H ①）：versionCode 优先，其次编排器补全的版本引用，最后 plan 自带的 name/latest。
 

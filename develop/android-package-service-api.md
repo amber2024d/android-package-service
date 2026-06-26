@@ -151,7 +151,8 @@ com.oakever.arrows_1.18.0_43_aptoide.xapk
 GET /api/v1/android/apps/{packageName}/files
 ```
 
-返回服务端准备下载的标准化文件列表，不实际下载文件。
+返回服务端准备下载的标准化文件列表，不实际下载文件。与 `/download` 走同一套编排器 name↔code 补全
+（查目录账本/采集库），所以只传 `versionName` 时返回里也会带补全出的 `versionCode`，两端版本报告一致。
 
 返回示例：
 
