@@ -3,8 +3,10 @@ import logging
 from pathlib import Path
 from uuid import uuid4
 
+from urllib.parse import quote
+
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from app.api.errors import error_response
 from app.catalog.catalog import VersionCatalog
@@ -163,6 +165,7 @@ async def download_app(
     version_code: int | None = Query(default=None, alias="versionCode"),
     version_name: str | None = Query(default=None, alias="versionName"),
     provider: str | None = Query(default=None),
+    settings: Settings = Depends(get_settings),
     orchestrator: DownloadOrchestrator = Depends(get_orchestrator),
     catalog: VersionCatalog = Depends(get_catalog),
 ):
@@ -177,11 +180,27 @@ async def download_app(
     except AggregateProviderError as exc:
         # 编排器已逐条记 provider_failed / 解析失败；这里只负责出错误响应。
         return error_response(exc)
+    # 配了 NAS 直供前缀就 302 重定向到 NAS nginx 直链，把大包传输从容器卸到 NAS（默认走 FileResponse）。
+    nas_url = nas_public_url(settings, artifact)
+    if nas_url:
+        return RedirectResponse(nas_url, status_code=302)
     return FileResponse(
         artifact,
         media_type=media_type_for(artifact),
         filename=artifact.name,
     )
+
+
+def nas_public_url(settings: Settings, artifact: Path) -> str | None:
+    """把 NAS 上的 artifact 路径映射成 NAS HTTP 服务直链；未配前缀或 artifact 不在 NAS 挂载下时返回 None。"""
+    base = settings.nas_public_base_url
+    if not base:
+        return None
+    try:
+        relative = artifact.relative_to(settings.nas_mount_path)
+    except ValueError:
+        return None
+    return base.rstrip("/") + "/" + "/".join(quote(part) for part in relative.parts)
 
 
 def media_type_for(path: Path) -> str:

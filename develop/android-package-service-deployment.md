@@ -56,6 +56,7 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
+      NAS_PUBLIC_BASE_URL: ${NAS_PUBLIC_BASE_URL:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
       # 持久状态卷：含版本目录 SQLite 库 + WAL 边车 + token cache + metadata（详见「存储目录」）。
@@ -98,6 +99,10 @@ volumes:
   `docker volume rm` 会连卷一起删，账本随之清空**，运维需避免，并建议定期备份（见「存储目录」）。
 - `app_tmp` 保存下载过程中的临时文件，可随时丢弃。
 - `nas_apks` 挂载 NAS，用来保存 APK/XAPK 这类大文件 artifact，避免占满服务器磁盘。
+- `NAS_PUBLIC_BASE_URL`：NAS 自带 HTTP 文件服务（nginx）对外前缀，其根须对应 `NAS_MOUNT_PATH` 根
+  （如 `/mnt/nas/apks` ↔ `http://10.0.0.6:5003/android-packages`）。配置后 `/download` 改为 **302 重定向到
+  NAS 直链**，把大包传输从「容器经 CIFS 读 150MB 再转发」双跳卸到 NAS nginx 直供，解放 worker、不占容器带宽。
+  留空（默认）则本服务流式返回。**仅当下游客户端能直连该地址时启用**（内网/同网段；外网够不到 NAS 私网 IP 时勿配）。
 - `shm_size` 是给 Playwright Chromium 留空间，避免网页兜底路径在容器里不稳定。
 - **版本目录库放本地卷 `app_data`、不放 NAS（CIFS）卷**：SQLite WAL 依赖本地文件锁/共享内存，跑在
   CIFS 上会损坏；NAS 卷只承载只读复用的大文件 artifact。

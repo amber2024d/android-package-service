@@ -52,6 +52,25 @@ def test_download_reuses_existing_artifact(tmp_path, caplog):
     assert '"event": "artifact_reused"' in caplog.text
 
 
+def test_download_redirects_to_nas_when_configured(tmp_path):
+    # 配了 NAS_PUBLIC_BASE_URL：/download 改 302 重定向到 NAS 直链，不再本服务流式返回。
+    client = _client(tmp_path)
+    settings = get_settings()
+    settings.nas_public_base_url = "http://nas.local:5003/android-packages"
+    try:
+        response = client.get(
+            "/api/v1/android/apps/org.fdroid.fdroid/download?provider=fake",
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        location = response.headers["location"]
+        assert location.startswith("http://nas.local:5003/android-packages/artifacts/fake/org.fdroid.fdroid/")
+        assert location.endswith(".apk")
+    finally:
+        settings.nas_public_base_url = None
+        get_settings.cache_clear()
+
+
 def test_download_split_xapk(tmp_path):
     client = _client(tmp_path)
     response = client.get("/api/v1/android/apps/com.oakever.arrows/download?provider=fake")

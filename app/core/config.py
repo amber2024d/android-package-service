@@ -75,11 +75,19 @@ class Settings(BaseSettings):
     # 又保证预签名/带 cookie 的下载链接与生成它的会话同 IP。
     upstream_proxy: str | None = None
 
-    @field_validator("upstream_proxy", mode="before")
+    # NAS 自带的 HTTP 文件服务（nginx）对外前缀；其根须对应 nas_mount_path 根
+    # （如 /mnt/nas/apks <-> http://10.0.0.6:5003/android-packages）。
+    # 留空：/download 由本服务从 NAS 经 CIFS 读出再流式返回（默认，行为不变）。
+    # 配置后：/download 改为 302 重定向到 NAS 直链（artifact 在 nas_mount_path 下时），
+    # 把大包传输从「容器读 + 转发」双跳卸到 NAS nginx 直供，解放 worker、避免占用容器带宽。
+    # 仅当下游客户端能直连该地址时启用（内网/同网段）；外网客户端够不到 NAS 私网 IP 时勿开。
+    nas_public_base_url: str | None = None
+
+    @field_validator("upstream_proxy", "nas_public_base_url", mode="before")
     @classmethod
-    def _blank_proxy_to_none(cls, value: object) -> object:
-        # compose 的 `${UPSTREAM_PROXY:-}` 未配代理时传空串；空串不是合法代理 URL（httpx 会 ValueError），
-        # 归一为 None = 直连，让 chromium_proxy / httpx / wget 各处统一走「无代理」分支。
+    def _blank_to_none(cls, value: object) -> object:
+        # compose 的 `${VAR:-}` 未配置时传空串；空串归一为 None，让各处统一走「未配置」分支
+        # （upstream_proxy 空串会让 httpx ValueError；nas_public_base_url 空串会错误触发重定向）。
         if isinstance(value, str) and not value.strip():
             return None
         return value

@@ -11,6 +11,7 @@
 
 - `app/api/`：请求解析、错误响应、文件响应；不写 provider 特例和下载细节。`/apps/{pkg}/versions`（阶段 13）
   走版本目录只出 downloadable；`/download` 经编排器，指定版本时 fire-and-forget 触发后台收集（`_spawn_background`）。
+  配了 `NAS_PUBLIC_BASE_URL` 时 `/download` 改 302 重定向到 NAS nginx 直链（`nas_public_url`），把大包传输卸到 NAS、解放容器；留空则 `FileResponse` 流式返回。
 - `app/domain/`：跨 API、provider、下载层共享的模型和错误类型。
 - `app/providers/`：上游来源适配，只产出 `AndroidPackageInfo` 和 `DownloadPlan`。
 - `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取工具（非独立 provider）。阶段 11 起 `list_versions`

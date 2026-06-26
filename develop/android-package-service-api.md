@@ -115,13 +115,17 @@ provider    可选，默认 auto
 - **指定版本**时先直接尝试下载，同时**后台异步补目录**（fire-and-forget，与下载并发、不阻塞响应；同包收集单飞去重）。
 - **不传版本=最新版**走快路径，不触发目录收集。
 - 「按名」「按号」指向同一版本的并发请求归一到同一把下载锁，只下一次、复用 artifact。
+- 配了 `NAS_PUBLIC_BASE_URL`（NAS 自带 nginx 文件服务前缀）时，下载就绪后 **302 重定向到 NAS 直链**，
+  让客户端从 NAS 直拉，省掉「容器经 CIFS 读大包再转发」的双跳、解放 worker；留空则由本服务流式返回（默认）。
 
 返回：
 
-- 单 APK：`Content-Type: application/vnd.android.package-archive`
-- 多文件包：`Content-Type: application/zip`
-- 上游单 APKS：`Content-Type: application/zip`
-- `Content-Disposition` 中给出文件名。
+- 默认：本服务流式返回安装包字节
+  - 单 APK：`Content-Type: application/vnd.android.package-archive`
+  - 多文件包 / 上游单 APKS：`Content-Type: application/zip`
+  - `Content-Disposition` 中给出文件名。
+- 配了 `NAS_PUBLIC_BASE_URL`：`302 Found`，`Location` 指向 NAS nginx 直链（artifact 在 NAS 挂载下时）。
+  客户端需跟随重定向（`curl -L`、浏览器默认跟随）；下游够不到 NAS 私网地址时勿配此项。
 
 文件名建议：
 

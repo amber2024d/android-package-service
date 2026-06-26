@@ -36,6 +36,7 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
+      NAS_PUBLIC_BASE_URL: ${NAS_PUBLIC_BASE_URL:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
       # 持久状态用宿主目录映射（host 可见可备份、删库即删文件，无需 docker volume）：
