@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 
+from app.api.discover import discover_router
 from app.api.routes import router
 from app.catalog.runtime import build_catalog
 from app.catalog.scheduler import CatalogRefreshScheduler
@@ -39,6 +40,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Android Package Service", lifespan=lifespan)
 app.include_router(router)
+app.include_router(discover_router)
 
 
 @app.get("/health")

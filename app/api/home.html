@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Android Package Service</title>
+<style>
+:root {
+  --bg: #f0f2f5;
+  --card: #ffffff;
+  --border: #e8e8ec;
+  --text: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-tertiary: #aeaeb2;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --prompt-bg: #f9f9fb;
+  --green: #30d158;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+.container { max-width: 680px; width: 100%; }
+.card {
+  background: var(--card);
+  border-radius: 16px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 24px rgba(0,0,0,0.06);
+  overflow: hidden;
+}
+
+/* Header */
+.card-header {
+  padding: 28px 32px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+}
+.logo {
+  width: 48px; height: 48px;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.logo svg { width: 26px; height: 26px; }
+.header-text h1 {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+.header-text p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 3px;
+  line-height: 1.4;
+}
+
+/* Prompt section */
+.prompt-section { padding: 28px 32px; }
+.prompt-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 12px;
+}
+.prompt-box {
+  background: var(--prompt-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 24px 28px;
+  padding-right: 80px;
+  position: relative;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.prompt-box p {
+  margin: 0 0 16px;
+}
+.prompt-box p:last-child { margin-bottom: 0; }
+.prompt-box ol {
+  margin: 0;
+  padding-left: 1.4em;
+}
+.prompt-box ol li {
+  margin-bottom: 10px;
+}
+.prompt-box ol li:last-child { margin-bottom: 0; }
+.copy-btn {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  height: 32px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.copy-btn:hover { background: var(--accent-hover); transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,113,227,0.3); }
+.copy-btn:active { transform: translateY(0); }
+.copy-btn.copied { background: var(--green); }
+.copy-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+/* Footer */
+.footer {
+  padding: 0 32px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+}
+.footer a:hover { text-decoration: underline; }
+.dot { color: var(--border); }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="card">
+    <div class="card-header">
+      <div class="logo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+          <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+          <line x1="12" y1="22.08" x2="12" y2="12"/>
+        </svg>
+      </div>
+      <div class="header-text">
+        <h1>Android Package Service</h1>
+        <p>复制下方提示词发送给 AI，即可通过对话查询和下载 Android 安装包</p>
+      </div>
+    </div>
+    <div class="prompt-section">
+      <div class="prompt-label">Prompt</div>
+      <div class="prompt-box">
+        <button class="copy-btn" onclick="copyPrompt(this)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          复制
+        </button>
+        <div id="prompt-content"></div>
+      </div>
+    </div>
+    <div class="footer">
+      <a href="/discover">API 文档</a>
+      <span class="dot">&middot;</span>
+      <a href="/health">健康检查</a>
+    </div>
+  </div>
+</div>
+<script>
+var promptText = __PROMPT_JSON__;
+(function renderPrompt() {
+  var lines = promptText.split('\n');
+  var html = '';
+  var inList = false;
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+    if (!line) continue;
+    var m = line.match(/^(\d+)\.\s+(.*)/);
+    if (m) {
+      if (!inList) { html += '<ol>'; inList = true; }
+      html += '<li>' + escHtml(m[2]) + '</li>';
+    } else {
+      if (inList) { html += '</ol>'; inList = false; }
+      html += '<p>' + escHtml(line) + '</p>';
+    }
+  }
+  if (inList) html += '</ol>';
+  document.getElementById('prompt-content').innerHTML = html;
+  function escHtml(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+})();
+var COPY_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+var CHECK_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+function copyPrompt(btn) {
+  function onSuccess() {
+    btn.classList.add('copied');
+    btn.innerHTML = CHECK_ICON + ' 已复制';
+    setTimeout(function() { btn.classList.remove('copied'); btn.innerHTML = COPY_ICON + ' 复制'; }, 2000);
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(promptText).then(onSuccess);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = promptText;
+    ta.style.cssText = 'position:fixed;left:-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    onSuccess();
+  }
+}
+</script>
+</body>
+</html>
