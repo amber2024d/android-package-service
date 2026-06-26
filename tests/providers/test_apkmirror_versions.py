@@ -62,18 +62,32 @@ def test_parse_app_slug_no_match_raises_not_found():
     assert exc.value.provider_error.error == ErrorCode.NOT_FOUND
 
 
-def test_parse_app_slug_unrelated_results_do_not_guess():
-    # APKMirror 不收录该包时返回的「猜你想找」无关结果（实测 Thunderbird Beta）：
-    # 没有任何 block 内嵌目标包名 → 必须 NOT_FOUND，绝不能兜底取第一条把别的 app 灌进来（污染事故回归）。
-    unrelated = """
+def test_parse_app_slug_ignores_search_term_echo():
+    # 污染事故根因回归：APKMirror 不收录该包时返回「猜你想找」的无关 app（Thunderbird），
+    # 且把搜索词回显进页面（title/面包屑/统计 JS），回显落进了某个 appRow block。
+    # 必须只认「图标 URL 内嵌包名」——若按「整块文本含包名」判断，会被回显骗到 Thunderbird 的 slug。
+    echoed = f"""
     <div class="appRow">
-      <img alt="Thunderbird Beta" src="/ap_resize.php?src=..._org.mozilla.thunderbird_beta.png">
+      <img alt="Thunderbird Beta" src="/ap_resize.php?src=...abc_org.mozilla.thunderbird.png&amp;w=32">
       <a class="fontBlack" href="/apk/mozilla-thunderbird/thunderbird-beta-for-testers/thunderbird-beta-for-testers-21-0b1-release/">Thunderbird Beta 21.0b1</a>
+      <span data-stat='arch_search":"{PKG}"'>You searched for {PKG}</span>
     </div>
     """
     with pytest.raises(ProviderException) as exc:
-        m.parse_app_slug(unrelated, PKG, provider_id="apkmirror")
+        m.parse_app_slug(echoed, PKG, provider_id="apkmirror")
     assert exc.value.provider_error.error == ErrorCode.NOT_FOUND
+
+
+def test_parse_app_slug_matches_icon_despite_echo():
+    # 回显在前的无图标块 + 真正匹配的图标块在后：仍应按图标精确命中目标 app。
+    html = f"""
+    <div class="appRow"><span>You searched for {PKG}</span></div>
+    <div class="appRow">
+      <img alt="Vita Mahjong" src="/ap_resize.php?src=...deadbeef_{PKG}.png&amp;w=32">
+      <a class="fontBlack" href="/apk/vita-studio/vita-mahjong/vita-mahjong-3-26-0-release/">Vita Mahjong 3.26.0</a>
+    </div>
+    """
+    assert m.parse_app_slug(html, PKG, provider_id="apkmirror") == ("vita-studio", "vita-mahjong")
 
 
 def test_parse_uploads_versions_dedups_and_filters_and_dates():

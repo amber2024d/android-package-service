@@ -26,6 +26,7 @@ from app.providers.apkpure_versions import chromium_proxy, fail, head, load_html
 WEB_BASE_URL = "https://www.apkmirror.com"
 
 _RELEASE_RE = re.compile(r"/apk/[a-z0-9.-]+/[a-z0-9.-]+/[a-z0-9.-]+-release/")
+_IMG_SRC_RE = re.compile(r'<img\b[^>]*\bsrc="([^"]*)"', re.IGNORECASE)
 _FONTBLACK_RE = re.compile(r'<a[^>]*class="fontBlack"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>', re.IGNORECASE)
 _APPROW_RE = re.compile(r'<div class="appRow">')
 _UTCDATE_RE = re.compile(r'data-utcdate="([^"]+)"')
@@ -66,13 +67,16 @@ class APKMirrorDownload:
 def parse_app_slug(html: str, package_name: str, *, provider_id: str) -> tuple[str, str]:
     """从搜索结果页解析目标 app 的 (dev_slug, app_slug)。
 
-    只认「结果行图标 URL 内嵌该包名」的精确匹配——APKMirror 搜索结果行的 ``<img src>`` 形如
-    ``{hash}_{package}.png``（见 APKPure 同源做法 ``search_result_url``）。匹配不到就 NOT_FOUND：
-    APKMirror 对它不收录的包会返回「猜你想找」的无关热门 app（实测 Thunderbird Beta 等），
-    **绝不能盲目取第一条兜底**，否则会把另一个 app 的整段历史版本灌进该包的目录（污染事故根因）。
+    只认「结果行 **app 图标 URL** 内嵌该包名」的精确匹配——APKMirror 结果行的 ``<img src>`` 形如
+    ``{hash}_{package}.png``（包名前 ``_``、后接扩展名 ``.``）。**绝不能用「整块文本含包名」判断**：
+    APKMirror 把搜索词回显进页面 title / 面包屑 / 搜索框 value / 统计 JS（``arch_search``、``s=`` 查询）
+    多达几十处，且这些回显会落进某个 appRow block，按整块匹配会被回显骗到无关 app
+    （污染事故根因，实测错配到 Samsung Theme Park / Block Crush / Gboard）。匹配不到就 NOT_FOUND
+    （该包不在 APKMirror）；绝不取第一条兜底。
     """
+    needle = f"_{package_name}."
     for block in _split_app_rows(html):
-        if package_name in block:
+        if any(needle in src for src in _IMG_SRC_RE.findall(block)):
             slug = _slug_from_block(block)
             if slug:
                 return slug
