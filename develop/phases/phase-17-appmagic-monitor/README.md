@@ -4,7 +4,14 @@
 
 接 AppMagic releases 时间线作**内部监控/审计源**，补 **known 层**（versionName + release_date，**无 versionCode、
 常无源可下**）。按决策①，known-only **不进对外 `/versions`**——只供监控、审计、缺口对账、归档优先级。
-本阶段的难点是 Cloudflare `cf_clearance` + 登录态 `dashly_auth_token` 的 cookie/会话运维。
+本阶段曾把 Cloudflare `cf_clearance` + 登录态 `dashly_auth_token` 的 cookie/会话运维当作难点。
+
+> **实测更正（阶段 17 之后）**：`app-info/releases` 实测**公开匿名可取**——裸 httpx（无 UA/Referer/cookie）直接 200
+> 返回完整 releases，Cloudflare 不发挑战。难点不成立。取数改为两层：默认匿名 httpx；被 Cloudflare 拦（403/429/503/
+> HTML 挑战页，机房 IP 更易遇到）则回退无头 Chromium 在 appmagic.rocks 页面上下文里 `fetch`（真实浏览器解挑战、无需登录），
+> 统一走 `upstream_proxy`。原 `session/appmagic_session.py`（`cf_clearance + dashly_auth_token`）及
+> `APPMAGIC_CF_CLEARANCE/APPMAGIC_AUTH_TOKEN` 配置**已整体移除**——接口公开、cookie 纯属冗余。
+> **下文凡以 cookie / `AppMagicSession` 为前提的描述均已作废**（仅留作阶段历史），实现以本块为准。
 
 ## 输入文档
 

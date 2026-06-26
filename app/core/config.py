@@ -60,10 +60,9 @@ class Settings(BaseSettings):
     archive_max_retries: int = 2
 
     # AppMagic known 时间线（阶段 17，§7）：内部监控源，补 known 层（无 code、无源可下、不进对外 /versions）。
-    # 默认关，运维成本高：需外部注入 cf_clearance（过 Cloudflare）+ dashly_auth_token（登录态）；缺则降级。
+    # 默认关。app-info/releases 实测公开匿名可取（无需登录/cookie、CF 不挑战）：开关开即生效。
+    # httpx 被 Cloudflare 拦则自动走 Playwright 兜底（走 upstream_proxy 统一出口 IP，机房 IP 更易遇拦）。
     appmagic_enabled: bool = False
-    appmagic_cf_clearance: str | None = None
-    appmagic_auth_token: str | None = None
     appmagic_country: str = "US"
     appmagic_store: int = 1
 

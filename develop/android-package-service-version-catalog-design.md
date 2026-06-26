@@ -374,7 +374,7 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 | APKPure proto | `m/v3/cms/app_version` | ✅ | 待确认 | 部分 | protobuf 解析脆弱 |
 | Aptoide | `app/get` 的 `versions` | ✅ | ✅（+app_id/md5） | 部分 | 较稳 |
 | Google Play | gpapi `details` | 仅最新 | 仅最新；delivery 按 vc | 不可枚举 | 需 Aurora token + 代理 |
-| **AppMagic** | `POST .../app-info/releases` | ✅ + release_date | ❌ | 较广（仍有缺口） | Cloudflare + 账号 cookie，运维重；返回的是「发布事件」需按名去重 |
+| **AppMagic** | `POST .../app-info/releases` | ✅ + release_date | ❌ | 较广（仍有缺口） | 实测公开匿名可取（无需登录/cookie，CF 不挑战）；httpx 被拦再走 Playwright 兜底；返回「发布事件」需按名去重 |
 | **APKMirror** | Playwright 抓 `/uploads/` 分页 | ✅ | ✅（manifest 权威，含变体） | **较深：2.x 起，实测 107 个 ≫ APKPure 25（§11.2）** | Cloudflare 但实测零拦截、无需 cookie；下载多跳 + `.apkm` 解包 |
 | 名↔号账本（自产） | 下载后解析 manifest | ✅ | ✅ | 随使用增长 | 零请求，最可靠 |
 
@@ -383,9 +383,15 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
 ## 7. AppMagic 接入：当「版本名时间线」源，不当 code 源
 
 > **落地（阶段 17）**：`collectors/appmagic.py`（`downloadable=False`，POST releases、按 versionName 去重保留
-> `[首末]` 日期、无 code）+ `session/appmagic_session.py`（cf_clearance + dashly_auth_token 外部注入、缺则降级、
-> 401/403 置失效）。入 known 层（`versions.downloadable=0`、MAX 合并不下调可下载源的 1）、**不进对外 `/versions`**、
-> 不进归档；缺口对账 `VersionCatalog.list_known_only`。默认关。Playwright 自动刷新 cookie 与日期对齐二级键留待后续。
+> `[首末]` 日期、无 code）。入 known 层（`versions.downloadable=0`、MAX 合并不下调可下载源的 1）、**不进对外 `/versions`**、
+> 不进归档；缺口对账 `VersionCatalog.list_known_only`。默认关。
+>
+> **实测更正（取数不需登录/cookie）**：阶段 17 后实测 `app-info/releases` **公开匿名可取**——首页 200 不产生 `cf_clearance`，
+> 接口对裸 httpx（无 UA/Referer/cookie）也直接 200 返回完整 releases，Cloudflare 在前但不发挑战。故取数改为**两层**：
+> 默认匿名 httpx；被 Cloudflare 拦（403/429/503/HTML 挑战页，机房 IP 更易遇到）则回退无头 Chromium 在 appmagic.rocks
+> 页面上下文里 `fetch`（真实浏览器自动解挑战、无需登录），统一走 `upstream_proxy`。原 `AppMagicSession`（cf_clearance +
+> dashly_auth_token）及 `APPMAGIC_CF_CLEARANCE/APPMAGIC_AUTH_TOKEN` 配置**已整体移除**（接口公开，cookie 纯属冗余）；
+> 若日后接口收紧需带会话，再按需加回。
 
 > **v2 重定位**：决策① 下对外 `/versions` 只出 downloadable，而 AppMagic 是 known-only（无源可下、无 code）。
 > 因此 AppMagic **不进对外接口**，降为**内部监控/归档触发的可选源（二期）**；本节分析仍是其接入方式的依据。
@@ -409,9 +415,9 @@ VersionCodeLedger（名↔号账本，全局、append-only、永不过期）
   「**覆盖较广的名单源，仍需多源并集补全**」。
 - **`release_date` 可用作多源对齐的二级键**（已确认有日期）：与带 code 的源（APKPure/Aptoide，若也带日期）
   按 `versionName + 邻近日期` 对齐，解决同名多条时的匹配。
-- **风险（必须正视）**：请求依赖 `cf_clearance`（Cloudflare 过墙 cookie）+ `dashly_auth_token`
-  （登录态）。即「**既要过 Cloudflare 又要带账号会话**」，cookie 会过期、token 绑账号。稳定接入需要
-  带登录的 Playwright 会话或维护 cookie 池——这是**持续运维成本**，因此列为**二期**。
+- **风险（已实测更正）**：早期判断「既要过 Cloudflare 又要带账号会话」，故列为运维重的二期。**阶段 17 后实测推翻**：
+  该接口公开匿名可取，无需 `cf_clearance`/`dashly_auth_token`，Cloudflare 不发挑战（见上方「实测更正」与 §7 落地）。
+  残留风险只剩**机房/云出口 IP 可能被 Cloudflare 更严挑战**——由 Playwright 兜底（真实浏览器解挑战）+ `upstream_proxy` 消化。
 - **定位**：AppMagic 回答「**有哪些版本名、大致什么时候发的**」，真正下载与配号交给 APKPure/Aptoide/账本。
   降级：AppMagic 不可用时退回各下载源自带的版本列表，只是名单可能更不全。
 
@@ -534,7 +540,7 @@ known-only、「没有任何源能给 code 或文件」的版本段。且每个�
 
 - 并发写 SQLite 的粒度：复用下载层 per-key 锁，还是库级 `BEGIN IMMEDIATE` / WAL？（单节点优先 WAL + per-package 锁）
 - 定时刷新的承载：FastAPI 进程内调度器（需 leader 选主）vs 独立 scheduler 容器？刷新集很大时如何分片/错峰？
-- AppMagic（二期内部监控源）的 cookie/会话怎么托管最省心（Playwright 常驻 context？外部注入？）。
+- ~~AppMagic 的 cookie/会话怎么托管最省心~~（**已实测解答**：接口公开匿名可取，无需 cookie/登录；只在被 Cloudflare 拦时用 Playwright 兜底，cookie 降为可选覆盖。见 §7）。
 - proto 是否纳入采集器（先抓样本确认 code 字段与覆盖）。
 - 一对多 vc 下，Google 下载选号策略（最高？匹配 walleye/arm64？）。
 - 「最新版快路径」与「ensure-collected」的边界：最新下载是否也顺手把最新页 merge 进库（便宜的增量）？
