@@ -195,12 +195,39 @@ def test_known_only_source_stored_not_downloadable(tmp_path):
     assert cat.list_known_only("p") == [("2.0.0", "2025-06-01")]
 
 
-def test_release_date_only_from_authoritative_source(tmp_path):
-    # 非权威源（APKPure，带自己的日期）不写 release_date；只有 AppMagic 权威源写入。
+def test_non_authoritative_date_not_in_release_date_column_but_fallback(tmp_path):
+    # 非权威源（APKPure）的日期不写权威 release_date 列；但对外 releaseDate 缺 AppMagic 时回退 first_seen_date 兜底。
     apkpure = FakeCollector("apkpure", [VersionRecord("1.0.0", 1, release_date="2020-01-01")])  # 非权威
-    cat, _ = _catalog(tmp_path, [apkpure])
+    cat, db = _catalog(tmp_path, [apkpure])
     asyncio.run(cat.ensure_collected("p"))
-    assert cat.list_downloadable("p") == [("1.0.0", 1, None)]  # APKPure 的日期不进 release_date
+    with closing(sqlite3.connect(db)) as conn:
+        # 权威列不被非权威源污染……
+        assert conn.execute("SELECT release_date FROM versions WHERE version_name = '1.0.0'").fetchone()[0] is None
+    # ……但对外输出兜底回退到观测日期
+    assert cat.list_downloadable("p") == [("1.0.0", 1, "2020-01-01")]
+
+
+def test_release_date_prefers_authoritative_over_fallback(tmp_path):
+    # 混合：AppMagic 覆盖的版本用 AppMagic 权威日期；未覆盖的版本回退其它源观测日期兜底。
+    apkpure = FakeCollector(
+        "apkpure",
+        [
+            VersionRecord("2.0.0", 2, release_date="2020-02-02"),  # AppMagic 也覆盖 → 用 AppMagic
+            VersionRecord("1.0.0", 1, release_date="2020-01-01"),  # AppMagic 未覆盖 → 兜底用这个
+        ],
+    )
+    appmagic = FakeCollector(
+        "appmagic",
+        [VersionRecord("2.0.0", None, release_date="2026-02-02")],
+        downloadable=False,
+        provides_release_date=True,
+    )
+    cat, _ = _catalog(tmp_path, [apkpure, appmagic])
+    asyncio.run(cat.ensure_collected("p"))
+    assert cat.list_downloadable("p") == [
+        ("2.0.0", 2, "2026-02-02"),  # AppMagic 权威优先
+        ("1.0.0", 1, "2020-01-01"),  # 兜底回退
+    ]
 
 
 def test_archive_events_exclude_known_only(tmp_path):

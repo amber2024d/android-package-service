@@ -54,8 +54,9 @@
 { "packageName": "...", "versions": [ {"versionName": "3.26.0", "versionCode": 1772, "releaseDate": "2026-06-22"}, ... ] }
 ```
 
-> `releaseDate`（发布时间）以 AppMagic 为准（`versions.release_date` 列，仅 `provides_release_date` 源写入）；
-> 无 AppMagic 覆盖则 null。
+> `releaseDate`（发布时间）优先 AppMagic（`versions.release_date` 列，仅 `provides_release_date` 源写入）；
+> AppMagic 未覆盖该版本时回退其它源（Aptoide/APKMirror）的收录日期 `first_seen_date` 作兜底（`list_downloadable` 里 COALESCE）；
+> 两者皆无则 null。
 
 - known-only（只知有此版本、无源可下、常无 code）**不进对外接口**，避免「列出来 = 能下」的误解（§14 教训）；
   至多留在内部库供归档/监控。

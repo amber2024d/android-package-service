@@ -31,7 +31,8 @@ class Collector(ABC):
     （AppMagic，只知发布过、无源可下、§7）False——入库 `downloadable=0`、不进对外 `/versions`。
 
     `provides_release_date`：本源是否为版本「发布时间」的权威来源。仅 AppMagic 为 True——其 `release_date`
-    写入 `versions.release_date`、覆盖为准；其它源不动该字段（避免各源观测日期污染发布时间）。
+    写入 `versions.release_date`、覆盖为准；其它源不动该列（避免观测日期污染权威发布时间），但其日期仍落
+    `first_seen_date`，在 AppMagic 未覆盖时作对外 `releaseDate` 的兜底（见 `VersionCatalog.list_downloadable`）。
     """
 
     source: str

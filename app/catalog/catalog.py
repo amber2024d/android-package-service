@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 # versions：按 (package, version_name) 归并；code/日期取 COALESCE（已有不被 NULL 覆盖）；
 # downloadable 取并集（MAX）——任一可下载源命中即 1，known-only 源（AppMagic）只贡献 0、不下调已有的 1。
-# release_date（发布时间）只由 AppMagic 写入（非权威源传 NULL，COALESCE 不动），AppMagic 复采则覆盖为最新。
+# release_date（发布时间）只由 AppMagic 写入（非权威源传 NULL，COALESCE 不动），AppMagic 复采则覆盖为最新；
+# 其它源（Aptoide/APKMirror）观测到的收录日期落 first_seen_date，作对外 releaseDate 缺 AppMagic 时的兜底（见 list_downloadable）。
 _VERSIONS_UPSERT = """
 INSERT INTO versions (package, version_name, version_code, release_date, first_seen_date, last_seen_date, downloadable)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -92,12 +93,14 @@ class VersionCatalog:
     def list_downloadable(self, package: str) -> list[tuple[str, int | None, str | None]]:
         """对外 `/versions` 的数据源：只出 `downloadable=1` 的 `(versionName, versionCode, releaseDate)`，按版本号降序（最新在前）。
 
-        `releaseDate` 是 AppMagic 权威发布时间（无 AppMagic 覆盖则 None）。known-only（`downloadable=0`）不出
+        `releaseDate` 优先取 AppMagic 权威发布时间；AppMagic 未覆盖该版本时回退到其它源（Aptoide/APKMirror）
+        采到的收录日期 `first_seen_date` 作兜底，两者都没有才为 None。known-only（`downloadable=0`）不出
         （§B 决策①）。纯读库，不触发收集/刷新。
         """
         with closing(self.store.connect()) as conn:
             rows = conn.execute(
-                "SELECT version_name, version_code, release_date FROM versions WHERE package = ? AND downloadable = 1",
+                "SELECT version_name, version_code, COALESCE(release_date, first_seen_date) "
+                "FROM versions WHERE package = ? AND downloadable = 1",
                 (package,),
             ).fetchall()
         rows.sort(key=lambda row: version_sort_key(row[0]), reverse=True)

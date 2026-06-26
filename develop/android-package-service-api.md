@@ -93,7 +93,7 @@ GET /api/v1/android/apps/{packageName}/versions
 }
 ```
 
-- `releaseDate`：版本发布时间，**以 AppMagic 为准**（known 时间线源）。未被 AppMagic 覆盖到的版本为 `null`。
+- `releaseDate`：版本发布时间。**优先 AppMagic**（known 时间线源，最贴近官方发布日）；AppMagic 未覆盖的版本回退到其它源（Aptoide/APKMirror）采到的收录日期作兜底；都没有才为 `null`。
 
 ## 下载最终安装包
 
