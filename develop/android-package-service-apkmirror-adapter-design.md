@@ -69,7 +69,7 @@ google-play 更快；APKMirror 的价值在 apkpure-web 够不到的 2.x 历史�
 [4 跳取直链]
   GET {variantUrl}download/?key={K1}               （Cloudflare HTML，Playwright）
        → download-link href = /wp-content/themes/APKMirror/download.php?id={ID}&key={K2}
-  GET /wp-content/themes/APKMirror/download.php?id={ID}&key={K2}   （httpx，可跟随）
+  GET /wp-content/themes/APKMirror/download.php?id={ID}&key={K2}   （★ 已上 CF 质询，须同会话 page.request）
        → 302 到 Cloudflare R2 预签名直链（X-Amz-Expires=3600）
        Content-Type: application/vnd.apkm，支持 Range，文件名内嵌 name-code-arch
 ```
@@ -77,9 +77,14 @@ google-play 更快；APKMirror 的价值在 apkpure-web 够不到的 2.x 历史�
 要点：
 
 - **key 每跳由页面派生**（`K1≠K2`），不能拼，必须逐跳解析。
-- `/download/?key=K1` 是 Cloudflare HTML，需 Playwright；`download.php?id&key` 不过 Cloudflare，
-  httpx 直接 GET 会 302 到 R2，**所以 DownloadPlan 的下载 URL 填 `download.php?id&key` 即可**，
-  现有 downloader 的 `follow_redirects` 接管到 R2。
+- `/download/?key=K1` 是 Cloudflare HTML，需 Playwright。
+- ⚠️ **上游已收紧（2026-06 复测）**：`download.php?id&key` 现也在 Cloudflare 质询后面（响应头 `cf-mitigated: challenge`，
+  纯 httpx/wget 一律 403）——推翻了初版「download.php 不过 CF、downloader 的 `follow_redirects` 接管到 R2」的设计。
+  **现行实现**：`apkmirror_versions.resolve_r2_url` 在**同一 Playwright 会话**内 `page.goto` 中间页解掉质询拿
+  `cf_clearance`，再用复用同会话 cookie/UA/出口的 `page.request.get(download.php, max_redirects=0)` 截 302 的
+  `Location`（R2 预签名直链），把 **R2 直链**填进 `DownloadPlan`。R2 不过 CF、支持 Range，下载层 httpx 直下。
+- `cf_clearance` 绑定「UA + 出口 IP」，故取 R2 必须在 Playwright 会话内完成（自动同 UA/同代理），**不能**把 cookie
+  拆给下载层 httpx/wget（下载层用 Chrome UA，与服务 UA 不一致，cookie 不通用）。详见 [docs/apkmirror-download-research.md](../docs/apkmirror-download-research.md)「下载链路」。
 - **可选快路径**：release / variant URL 可由 `{app-slug}` + dash 化的 versionName 拼出，跳过列表页；
   但变体发现仍建议解析 release 页（多变体时 slug 不可靠）。建议「拼 URL 优先、解析兜底」。
 
@@ -194,9 +199,9 @@ artifact = self._finalize(plan, fetched)
 - `get_package_info(request)`：
   - 无版本约束 → 取最新（uploads 第 1 行）的 name/date，`versions` 列全量（name+date，code 多为空）。
   - 有 version_code/version_name → 选中该版本返回；选不到 `NOT_FOUND`。
-- `get_download_plan(request)`：列版本 → 选版本 → 进 release/变体页 → 走 4 跳 → 出 `DownloadPlan`，
-  files=单个 `PackageFile`（type=`APKM` 或 flag `bundle.format=apkm`，url=`download.php?id&key`，
-  headers 带 `Referer`=变体下载页，`proxy`=upstream_proxy，`metadata` 记 release_url/variant）。
+- `get_download_plan(request)`：列版本 → 选版本 → 进 release/变体页 → 走 4 跳（末跳 `resolve_r2_url` 同会话取 R2）→
+  出 `DownloadPlan`，files=单个 `PackageFile`（type=`APKM` 或 flag `bundle.format=apkm`，url=**R2 预签名直链**，
+  headers 带 `Referer`=变体下载页，`proxy`=upstream_proxy，`metadata` 记 release_url）。
 
 注册（`config.py` + `factory.py`，对齐现有 provider）：
 
@@ -225,6 +230,9 @@ provider_apkmirror_priority: int = 15           # 低于 apkpure-web(20)：作�
   浏览器失败 → `NETWORK_ERROR`；版本/变体/直链解析不出 → `BAD_RESPONSE`。
 - SSRF：最终 R2 直链走代理下载，`downloader._validate_url(via_proxy=True)` 已跳过本地 IP 校验
   （与 APKPure CDN 同款处理，见账本记忆 apkpure-download-ssrf-proxy-block）。
+  ⚠️ **直连（无 `upstream_proxy`）已知限制**：开发机若跑 Clash/Surge 的 fake-IP DNS，R2 域名会解析成 `198.18.0.0/15`
+  假 IP，`_validate_url(via_proxy=False)` 会判私有地址拦截（连接本身经宿主 TUN 实测可通、R2 返回 206）。即代理既绕
+  Cloudflare 又规避此 SSRF 误伤——直连需改宿主 DNS 走真实 IP，或后续给受信下载域名加放行（默认从严，暂未做）。
 
 ## 11. 测试要点
 
@@ -232,7 +240,8 @@ provider_apkmirror_priority: int = 15           # 低于 apkpure-web(20)：作�
 
 - `list_versions`：多页聚合、按 name 去重、翻页终止于「Page X of M」、日期解析。
 - 变体页：`Version: name (code)` 提取、bundle/split 识别、多变体排序选择（§5）。
-- 下载链路：variant → `/download/?key` → `download.php?id&key` 三段 URL 提取正确。
+- 下载链路：variant → `/download/?key` → `download.php?id&key` 提取正确；末跳 `resolve_r2_url` 取 R2 直链走真实
+  Playwright，单测整体打桩（`monkeypatch` `resolve_r2_url`），断言 `PackageFile.url` 为 R2 直链。
 - `info.json` 解析 + `_expand_bundles`：合成 plan.files（base + splits）、`XapkBuilder` 产出 .xapk、
   账本回填、单调性 sanity check。
 - provider：latest vs historical 分支、选不到版本 `NOT_FOUND`、各错误码归类（mock `load_html`）。

@@ -7,18 +7,21 @@ APKMirror 作为更深的 downloadable 源（见版本目录设计 §11.2 实测
 2. ``/uploads/`` 翻页列版本（app 主页只列最近 10 个，必须翻页才全）→ [(versionName, date, releaseUrl)...]。
 3. release 页列变体（arch/dpi/min-sdk，BUNDLE 标记）→ 选变体（优先 universal bundle）。
 4. 变体下载页：``Version: {name} ({code})`` + downloadButton ``/download/?key=K1``。
-5. 4 跳取直链：``/download/?key=K1``（Playwright）→ ``download.php?id&key=K2``（httpx 跟随 302 到 R2）。
+5. 取直链：``/download/?key=K1``（Playwright）→ ``download.php?id&key=K2``。``download.php`` 现已被 Cloudflare
+   质询挡（实测 ``cf-mitigated: challenge``，纯 httpx/wget 一律 403），故在**同一 Playwright 会话**内解掉质询拿
+   ``cf_clearance`` 后，用复用同会话 cookie/UA/出口的 ``page.request`` 截 302，得 R2 预签名直链（R2 不过 CF、支持 Range）。
 
-错误按调用方传入的 ``provider_id`` 归属。本模块只做加载+解析，下载/解包在下载层。
+错误按调用方传入的 ``provider_id`` 归属。本模块只做加载+解析+取直链，字节下载/解包在下载层。
 """
 
 import re
 from dataclasses import dataclass
 from html import unescape
+from typing import Any
 from urllib.parse import quote, urljoin
 
-from app.domain.errors import ErrorCode
-from app.providers.apkpure_versions import fail, head, load_html  # 复用通用加载器/错误助手
+from app.domain.errors import ErrorCode, ProviderException
+from app.providers.apkpure_versions import chromium_proxy, fail, head, load_html  # 复用通用加载器/错误助手
 
 WEB_BASE_URL = "https://www.apkmirror.com"
 
@@ -251,8 +254,62 @@ async def resolve_download_url(
     )
     download = parse_download_page(download_html, provider_id=provider_id)
 
-    intermediate_html = await _load(
-        download.intermediate_url, provider_id=provider_id, user_agent=user_agent, timeout_seconds=timeout_seconds, proxy=proxy
+    final_url = await resolve_r2_url(
+        download.intermediate_url,
+        provider_id=provider_id,
+        user_agent=user_agent,
+        timeout_seconds=timeout_seconds,
+        proxy=proxy,
     )
-    final_url = parse_intermediate_url(intermediate_html, provider_id=provider_id)
     return final_url, download
+
+
+async def resolve_r2_url(
+    intermediate_url: str,
+    *,
+    provider_id: str,
+    user_agent: str,
+    timeout_seconds: float,
+    proxy: str | None = None,
+) -> str:
+    """中间页 → ``download.php`` → R2 直链，全程**同一浏览器会话**。
+
+    ``download.php?id&key`` 已被 Cloudflare 质询挡（实测 ``cf-mitigated: challenge``，纯 httpx/wget 一律 403），
+    但它 302 后的 R2 预签名直链不过 CF、支持 Range。这里用 Playwright 打开中间页解掉质询（拿 ``cf_clearance``），
+    再用复用同会话 cookie/UA/出口的 ``page.request``（``max_redirects=0`` 只截 302、不下整包）取 ``download.php`` 的
+    ``Location``（即 R2 直链）交给下载层 httpx。中间页 HTML 仍由 ``parse_intermediate_url`` 解析出 ``download.php``。
+    """
+    launch_kwargs: dict[str, Any] = {"headless": True, "args": ["--no-sandbox"]}
+    chromium = chromium_proxy(proxy)
+    if chromium:
+        launch_kwargs["proxy"] = chromium
+    try:
+        from playwright.async_api import Error as PlaywrightError
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as playwright:
+            browser = await playwright.chromium.launch(**launch_kwargs)
+            try:
+                page = await browser.new_page(user_agent=user_agent)
+                response = await page.goto(intermediate_url, wait_until="domcontentloaded", timeout=timeout_seconds * 1000)
+                if response and response.status == 404:
+                    fail(provider_id, ErrorCode.NOT_FOUND, "APKMirror download page not found.")
+                if response and response.status >= 500:
+                    fail(provider_id, ErrorCode.NETWORK_ERROR, f"APKMirror download page returned HTTP {response.status}.")
+                download_php = parse_intermediate_url(await page.content(), provider_id=provider_id)
+                redirect = await page.request.get(download_php, max_redirects=0)
+                location = redirect.headers.get("location")
+                if redirect.status not in {301, 302, 303, 307, 308} or not location:
+                    fail(
+                        provider_id,
+                        ErrorCode.BAD_RESPONSE,
+                        f"APKMirror download.php did not redirect to a direct link (HTTP {redirect.status}).",
+                    )
+                return urljoin(download_php, location)
+            finally:
+                await browser.close()
+    except ProviderException:
+        raise
+    except (PlaywrightTimeoutError, PlaywrightError) as exc:
+        fail(provider_id, ErrorCode.NETWORK_ERROR, f"APKMirror R2 resolve failed: {exc}")

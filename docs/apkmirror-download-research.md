@@ -62,13 +62,21 @@ release 页（选变体）：
 ```text
 变体下载页  → downloadButton  /download/?key={K1}          （Cloudflare HTML，Playwright）
 /download/?key={K1}          → download-link  /wp-content/themes/APKMirror/download.php?id={ID}&key={K2}
-download.php?id&key={K2}     → 302 到 Cloudflare R2 预签名直链                （httpx 可直接跟随，不过 CF）
+download.php?id&key={K2}     → 302 到 Cloudflare R2 预签名直链   （现已被 CF 质询挡，须同会话 page.request 截 302）
 R2 直链                       → application/vnd.apkm，支持 Range，X-Amz-Expires=3600（1h 时效）
 ```
 
 - **key 每跳由页面派生**（K1 ≠ K2），不能拼，必须逐跳解析。
-- `/download/?key=K1` 是 Cloudflare HTML，需 Playwright；`download.php?id&key` **不过 Cloudflare**，httpx GET 会 302
-  到 R2——所以下载 URL 用 `download.php?id&key` 即可，跟随重定向到 R2。
+- `/download/?key=K1` 是 Cloudflare HTML，需 Playwright。
+- ⚠️ **上游已收紧（2026-06 复测）**：`download.php?id&key` 现也在 Cloudflare 质询后面（实测响应头
+  `cf-mitigated: challenge` / `server: cloudflare`，返回 6KB 质询页 HTML），纯 httpx/wget 直取一律 **403 Forbidden**
+  —— 与本文初版「download.php 不过 CF、httpx 直接跟随」的结论已**不一致**。
+- **现行解法（方案 1，已落地）**：在**同一 Playwright 会话**里 `page.goto` 中间页解掉质询（拿 `cf_clearance`），
+  再用复用同会话 cookie/UA/出口的 `page.request.get(download.php, max_redirects=0)` 截下 302 的 `Location`（即 R2 预签名直链），
+  把 **R2 直链**交给下载层 httpx。R2 本身不过 CF、支持 Range，可直下。实现见
+  [`apkmirror_versions.resolve_r2_url`](../app/providers/apkmirror_versions.py)。
+- `cf_clearance` 绑定「UA + 出口 IP」：故必须在 Playwright 会话内取 R2（自动同 UA/同代理），而**不能**把 cookie 拆给
+  下载层的 httpx/wget（下载层用的是 Chrome UA，与 Playwright 的服务 UA 不一致，cf_clearance 不通用）。
 
 ## 产物：`.apkm` bundle（结构同 XAPK）
 
@@ -107,9 +115,12 @@ META-INF/{MANIFEST.MF, APKMIRRO.SF, APKMIRRO.RSA}   ← APKMirror 对 bundle 的
 
 ## 反爬观察
 
-- 实测 11 个 HTML 页 + 1 个 Range 直链请求**全部 200/206，零 Cloudflare 验证页**（无「Just a moment」/ 403）。
-- 套路同 APKPure：Playwright + Chrome UA + `UPSTREAM_PROXY`，**不需要登录态/cookie**（比 AppMagic 轻）。
-- 偶发瞬时超时（评估中 uploads 第 4 页出现过一次），建议 HTML 加载加 1 次重试。
+- 初版评估（早期）：11 个 HTML 页 + 1 个 Range 直链**全部 200/206，零 Cloudflare 验证页**。
+- **2026-06 复测**：HTML 页仍走 Playwright；但 `download.php` 那跳已升级为 Cloudflare 质询（见上「下载链路」），
+  必须用同会话 `page.request` 取 R2，不能再用裸 httpx/wget 跟随。R2 直链下载本身仍不过 CF、200/206 正常。
+- 套路同 APKPure：Playwright + 服务 UA + `UPSTREAM_PROXY`，**不需要登录态/cookie**（比 AppMagic 轻）。
+- 偶发瞬时超时 / `ERR_TUNNEL_CONNECTION_FAILED`（代理出口抖动，多见于容器重启后定时刷新并发打满代理时），
+  解析需 ~4 跳串行 Playwright，任一跳隧道失败即整单 502；建议 HTML 加载加重试 / 控制刷新并发。
 
 ## 未验 / 注意
 

@@ -17,6 +17,11 @@ from tests.providers.test_apkmirror_versions import (
 )
 
 PKG = "com.vitastudio.mahjong"
+# resolve_r2_url 走真实 Playwright（同会话过 CF 拿 R2 直链），单测里整体打桩成固定 R2 直链。
+R2_URL = (
+    "https://eb5e.r2.cloudflarestorage.com/downloadprod/com.vitastudio.mahjong_3.26.0-1772.apkm"
+    "?X-Amz-Expires=3600&X-Amz-Signature=K2DEF"
+)
 
 
 def _patch_load_html(monkeypatch):
@@ -33,7 +38,12 @@ def _patch_load_html(monkeypatch):
             return RELEASE_HTML
         raise AssertionError(f"unexpected url {url}")
 
+    async def fake_resolve_r2_url(intermediate_url, **kwargs):
+        assert intermediate_url.endswith("-android-apk-download/download/?key=K1ABC")
+        return R2_URL
+
     monkeypatch.setattr(apkmirror_versions, "load_html", fake_load_html)
+    monkeypatch.setattr(apkmirror_versions, "resolve_r2_url", fake_resolve_r2_url)
 
 
 def _run(awaitable):
@@ -53,7 +63,7 @@ def test_download_plan_by_name_resolves_apkm_bundle(monkeypatch):
     package_file = plan.files[0]
     assert package_file.type == PackageFileType.APKM
     assert package_file.metadata["bundle.format"] == "apkm"
-    assert package_file.url.endswith("download.php?id=14416406&key=K2DEF")
+    assert package_file.url == R2_URL  # download.php 已被 CF 挡，provider 出 R2 预签名直链
 
 
 def test_download_plan_latest_uses_first_uploads_row(monkeypatch):
