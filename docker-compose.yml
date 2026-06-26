@@ -38,11 +38,12 @@ services:
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes:
-      # 持久状态卷：含版本目录 SQLite 库 data/version-catalog.sqlite（名↔号账本，随使用累积、不可再生）
-      # + 含 WAL 边车 -wal/-shm + token cache + metadata。命名卷跨容器重启/重建/`down`（不带 -v）都保留；
-      # 切勿 `docker compose down -v` 或 `docker volume rm`，会清空账本。库放本地卷而非 NAS（WAL 不能跑在 CIFS 上）。
-      - app_data:/app/data
-      - app_tmp:/app/tmp
+      # 持久状态用宿主目录映射（host 可见可备份、删库即删文件，无需 docker volume）：
+      # ./data 含版本目录 SQLite 库 version-catalog.sqlite（名↔号账本，随使用累积、不可再生）+ WAL 边车
+      # -wal/-shm + token cache + metadata；WAL 不能跑在 CIFS 上，故映射本地盘而非 NAS。./tmp 为下载暂存。
+      - ./data:/app/data
+      - ./tmp:/app/tmp
+      # APK 产物仍走 NAS（CIFS 命名卷，见底部 volumes 定义）。
       - nas_apks:/mnt/nas/apks
     shm_size: "1gb"
     healthcheck:
@@ -52,9 +53,8 @@ services:
       retries: 3
       start_period: 10s
 
+# ./data、./tmp 改为宿主目录映射（见上），不再用命名卷；仅 APK 产物保留 NAS（CIFS）。
 volumes:
-  app_data:
-  app_tmp:
   nas_apks:
     driver_opts:
       type: cifs
