@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -74,6 +74,15 @@ class Settings(BaseSettings):
     # 统一出口 IP 既能绕过 Cloudflare（Aurora dispenser、APKPure CDN 都会拦），
     # 又保证预签名/带 cookie 的下载链接与生成它的会话同 IP。
     upstream_proxy: str | None = None
+
+    @field_validator("upstream_proxy", mode="before")
+    @classmethod
+    def _blank_proxy_to_none(cls, value: object) -> object:
+        # compose 的 `${UPSTREAM_PROXY:-}` 未配代理时传空串；空串不是合法代理 URL（httpx 会 ValueError），
+        # 归一为 None = 直连，让 chromium_proxy / httpx / wget 各处统一走「无代理」分支。
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def cache_dir(self) -> Path:

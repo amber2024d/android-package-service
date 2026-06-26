@@ -47,8 +47,9 @@
 - Docker 构建忽略：`.dockerignore`，只把镜像构建需要的源码和项目元数据放进 context。
 - 一键本地测试 Docker：`scripts/dev-compose-up.sh`。
 - 部署 smoke：`scripts/smoke.sh`。
-- `UPSTREAM_PROXY`：apkpure 系与 google-play 的上游代理（HTTP/HTTPS，含鉴权，不支持 SOCKS5）；
-  Cloudflare 拦 CDN/Aurora 或本机出口受限时配置，详见 `develop/android-package-service-providers.md`。
+- `UPSTREAM_PROXY`：apkpure 系 / google-play / apkmirror 的上游代理（HTTP/HTTPS，含鉴权，不支持 SOCKS5）；
+  Cloudflare 拦 CDN/Aurora、本机出口受限、或开发机 Clash fake-IP 误伤 SSRF 校验时配置（空串=直连，Settings 已归一为
+  `None`），详见 `develop/android-package-service-providers.md`。
 
 ## 存储
 
