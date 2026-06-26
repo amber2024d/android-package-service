@@ -125,29 +125,33 @@ class GooglePlayProvider(AndroidPackageProvider):
         return await self._gp_call(lambda api: self._download_plan(api, request))
 
     def _download_plan(self, api, request: AndroidPackageRequest) -> DownloadPlan:
-        if request.version_code is not None and request.version_name is None:
+        # versionCode 就是本源权威下载键：delivery 能按任意 versionCode 取文件（docs/gplayapi
+        # 「历史版本支持」）。编排器补全后请求常一并带上 versionName，它只是附带元信息，
+        # 不该把请求挤出这条直下快路、再被「只支持最新 versionName」误判 UNSUPPORTED。
+        if request.version_code is not None:
             result = api.download(request.package_name, versionCode=request.version_code, expansion_files=True)
             return DownloadPlan(
                 package_name=request.package_name,
                 app_name=request.package_name,
+                version_name=request.version_name,
                 version_code=request.version_code,
                 provider=self.id,
                 files=self._files(result, request.package_name),
             )
 
+        # 无 versionCode：只能交付 details 给出的最新版；按名请求须与最新版名一致。
         details = api.details(request.package_name)
         app = self._app_details(details)
         self._check_version_name(app, request)
         package_name = self._package_name(details, request.package_name)
-        latest_version_code = self._version_code(app)
-        version_code = request.version_code or latest_version_code
+        version_code = self._version_code(app)
         if version_code is None:
             self._fail(ErrorCode.BAD_RESPONSE, "Google Play details missing versionCode.")
         result = api.download(package_name, versionCode=version_code, expansion_files=True)
         return DownloadPlan(
             package_name=package_name,
             app_name=self._title(details, package_name),
-            version_name=self._version_name(app) if version_code == latest_version_code else request.version_name,
+            version_name=self._version_name(app),
             version_code=version_code,
             provider=self.id,
             files=self._files(result, package_name),

@@ -150,6 +150,12 @@ collection_state(                           -- 驱动「全量 vs 增量」
 - name→code（Google 下载刚需）：先查 `ledger`（权威、不过期），再查带 code 的 `version_sources`；都没有则该版本对
   Google 不可下，降级到 APKPure/APKMirror 按 name 下。
 - code→name：反查 ledger / version_sources。
+- **补全后 provider 须「单键判定」**：补全使请求常**号名同时存在**，provider 必须按**本源权威键**解析
+  （Google/Aptoide 认 `versionCode`、APKPure/APKMirror 认 `versionName`），另一字段只作**附带元信息**透传，
+  不得拿它做相等性硬校验或「号不等 OR 名不等」的或门判定。否则跨源 `versionName` 格式漂移（如 `1.17` vs `1.17.0`）
+  会把已按权威键命中的版本一票否决，误报 `UNSUPPORTED`/`NOT_FOUND`，或把命中最新版的请求误推进历史回退分支白跑一趟。
+  落地：`google_play._download_plan`（有 code 即直下）、`aptoide._matches`（有 code 只比 code）、
+  `apkpure_proto._select_version`（有名按名、附带 code 不判 UNSUPPORTED）、`apkpure_{signed,web}._is_historical`（单键判定）。
 - **每次成功下载回填账本**：解析产物 manifest（XAPK `manifest.json` / `.apkm` `info.json` 直给；裸 APK 解二进制），
   写 `ledger`，并对源给的 code 做单调性 sanity check（§14 见过 APKPure 把 2.41.1 错标 89）。
 

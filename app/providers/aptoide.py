@@ -262,11 +262,14 @@ class AptoideProvider(AndroidPackageProvider):
         return {key: value for key, value in metadata.items() if value}
 
     def _matches(self, app_or_version: dict[str, Any], request: AndroidPackageRequest) -> bool:
+        # versionCode 是全局唯一权威键，优先按它定位；缺号才回退按 versionName。
+        # 不再要求「号和名同时相等」——编排器补全后请求常号名都带，而跨源 versionName
+        # 格式差异（如 1.17 vs 1.17.0）会让号已命中的版本被名一票否决、误报 NOT_FOUND。
         file_data = self._file(app_or_version)
-        if request.version_code is not None and self._int(file_data.get("vercode")) != request.version_code:
-            return False
-        if request.version_name is not None and self._str_or_none(file_data.get("vername")) != request.version_name:
-            return False
+        if request.version_code is not None:
+            return self._int(file_data.get("vercode")) == request.version_code
+        if request.version_name is not None:
+            return self._str_or_none(file_data.get("vername")) == request.version_name
         return True
 
     def _file(self, app_or_version: dict[str, Any]) -> dict[str, Any]:

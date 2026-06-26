@@ -112,11 +112,14 @@ class APKPureWebProvider(AndroidPackageProvider):
     # -- 历史版本：走共享版本目录（/versions 页抓取 + 各版本下载页解析） --
 
     def _is_historical(self, detail: APKPureWebDetail, request: AndroidPackageRequest) -> bool:
-        if request.version_code is not None and request.version_code != detail.version_code:
-            return True
-        if request.version_name is not None and request.version_name != detail.version_name:
-            return True
-        return False
+        # 本源权威键单键判定：号是否最新优先看 versionCode（双方都有就只比号），缺号才退比 versionName。
+        # 不再「号不等 OR 名不等」——否则编排器补全出的 name 跨源漂移（1.17 vs 1.17.0）会把
+        # 已命中最新 code 的请求误推进历史网页抓取分支，白跑一趟 Cloudflare 还让版本元数据偏移。
+        if request.version_code is not None and detail.version_code is not None:
+            return request.version_code != detail.version_code
+        if request.version_name is not None:
+            return request.version_name != detail.version_name
+        return request.version_code is not None and request.version_code != detail.version_code
 
     async def _historical_versions(self, detail: APKPureWebDetail) -> list[apkpure_versions.APKPureVersion]:
         return await apkpure_versions.list_versions(

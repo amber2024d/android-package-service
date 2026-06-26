@@ -126,14 +126,16 @@ class APKPureProtoProvider(AndroidPackageProvider):
         return versions
 
     def _select_version(self, versions: list[APKPureProtoVersion], request: AndroidPackageRequest) -> APKPureProtoVersion:
+        # versionName 是本源唯一下载键。编排器补全后请求常把 versionCode 一并带上，
+        # 只要有名就按名命中，附带的 code 不该把请求判成 UNSUPPORTED（只在「光给 code 无名」时才不支持）。
+        if request.version_name is not None:
+            version = next((item for item in versions if item.version_name == request.version_name), None)
+            if not version:
+                self._fail(ErrorCode.NOT_FOUND, "APKPure proto versionName not found.")
+            return version
         if request.version_code is not None:
             self._fail(ErrorCode.UNSUPPORTED, "APKPure proto does not support versionCode.")
-        if request.version_name is None:
-            return versions[0]
-        version = next((item for item in versions if item.version_name == request.version_name), None)
-        if not version:
-            self._fail(ErrorCode.NOT_FOUND, "APKPure proto versionName not found.")
-        return version
+        return versions[0]
 
     def _file_type(self, raw_type: str, url: str) -> tuple[PackageFileType, str]:
         normalized = raw_type.upper().removesuffix("J")

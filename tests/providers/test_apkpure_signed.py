@@ -72,6 +72,27 @@ def test_specified_latest_version_success():
     assert plan.version_name == "1.23.2"
 
 
+def test_latest_version_code_with_drifted_name_uses_signed_asset(monkeypatch):
+    # 编排器补全出的 versionName 跨源漂移（1.23 vs 1.23.2），但 versionCode 已命中最新版：
+    # 必须走签名 API 直下快路（asset 直链），绝不被名一票否决推进历史网页抓取分支。
+    provider = APKPureSignedProvider()
+    provider._request_json = _responder(_payload())
+
+    async def boom(*args, **kwargs):
+        raise AssertionError("latest versionCode must use signed asset, not the web historical path")
+
+    monkeypatch.setattr(apkpure_versions, "resolve_version_file", boom)
+
+    plan = _run(
+        provider.get_download_plan(
+            AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1023052, version_name="1.23")
+        )
+    )
+
+    assert plan.version_code == 1023052
+    assert plan.files[0].url == "https://data.winudf.com/APK/fdroid.apk"
+
+
 def test_old_version_by_name_resolves_directly_without_enumeration(monkeypatch):
     # 阶段 12 收口：有 versionName 直接命中 /download/{name}，不抓 /versions 全量。
     provider = APKPureSignedProvider()

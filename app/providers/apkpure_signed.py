@@ -89,11 +89,15 @@ class APKPureSignedProvider(AndroidPackageProvider):
     # -- 历史版本：签名 API 只返回最新版，非最新版回退到共享网页版本目录 --
 
     def _is_historical(self, detail: dict[str, Any], request: AndroidPackageRequest) -> bool:
-        if request.version_code is not None and request.version_code != self._version_code(detail):
-            return True
-        if request.version_name is not None and request.version_name != self._version_name(detail):
-            return True
-        return False
+        # 本源权威键单键判定：号是否最新优先看 versionCode（双方都有就只比号），缺号才退比 versionName。
+        # 不再「号不等 OR 名不等」——否则编排器补全出的 name 跨源漂移（1.17 vs 1.17.0）会把
+        # 已命中最新 code 的请求误推进历史网页抓取分支，白跑一趟 Cloudflare 还让版本元数据偏移。
+        latest_code = self._version_code(detail)
+        if request.version_code is not None and latest_code is not None:
+            return request.version_code != latest_code
+        if request.version_name is not None:
+            return request.version_name != self._version_name(detail)
+        return request.version_code is not None and request.version_code != latest_code
 
     async def _web_versions(self, package_name: str) -> list[apkpure_versions.APKPureVersion]:
         detail_url = await apkpure_versions.resolve_detail_url(

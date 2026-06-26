@@ -85,6 +85,35 @@ def test_known_version_code_skips_details(tmp_path):
     assert plan.version_code == 1023020
 
 
+def test_version_code_with_supplemental_version_name_downloads_by_code(tmp_path):
+    # 编排器补全后请求常号名都带；有 versionCode 就直下，不查 details、不被 versionName 误判。
+    provider = _provider(tmp_path, download={"file": {"url": "https://play.example/base.apk"}}, details=AssertionError("unused"))
+
+    plan = _run(
+        provider.get_download_plan(
+            AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1023020, version_name="0.1")
+        )
+    )
+
+    assert plan.version_code == 1023020
+    assert plan.version_name == "0.1"
+    assert plan.files[0].source_url == "https://play.example/base.apk"
+
+
+def test_version_code_with_matching_version_name_still_skips_details(tmp_path):
+    # 对照用例：号名都给且 name 与最新版一致，仍走 versionCode 直下快路，不绕回 details。
+    provider = _provider(tmp_path, download={"file": {"url": "https://play.example/base.apk"}}, details=AssertionError("unused"))
+
+    plan = _run(
+        provider.get_download_plan(
+            AndroidPackageRequest(package_name="org.fdroid.fdroid", version_code=1023020, version_name="1.23.2")
+        )
+    )
+
+    assert plan.version_code == 1023020
+    assert plan.version_name == "1.23.2"
+
+
 def test_google_play_hashes_are_normalized_to_hex(tmp_path):
     provider = _provider(
         tmp_path,

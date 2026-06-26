@@ -71,6 +71,21 @@ def test_file_type_mapping(raw_type, url, file_type, name):
     assert plan.files[0].url == url
 
 
+def test_version_name_with_supplemental_version_code_resolves_by_name():
+    # 编排器补全后请求常带 versionCode；只要有名就按名命中，附带的 code 不该判成 UNSUPPORTED。
+    provider = APKPureProtoProvider()
+    provider._request_bytes = _responder(_proto_bytes())
+
+    plan = _run(
+        provider.get_download_plan(
+            AndroidPackageRequest(package_name="org.fdroid.fdroid", version_name="1.23.1", version_code=1023051)
+        )
+    )
+
+    assert plan.version_name == "1.23.1"
+    assert plan.files[0].url == "https://d.apkpure.com/b/XAPK/org.fdroid.fdroid?version=1.23.1"
+
+
 def test_specified_version_code_is_unsupported():
     provider = APKPureProtoProvider()
     provider._request_bytes = _responder(_proto_bytes())

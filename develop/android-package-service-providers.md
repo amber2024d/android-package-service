@@ -121,9 +121,14 @@ delivery
 | 条件 | 支持情况 |
 | --- | --- |
 | 最新版本 | 支持 |
-| 指定 `versionCode` | 支持，尝试 purchase/delivery |
-| 指定 `versionName` | 不可靠；可先查最新版本名，不匹配则返回 `UNSUPPORTED` |
+| 指定 `versionCode`（含同时带 `versionName`） | 支持，按 `versionCode` 直下（purchase/delivery）；`versionName` 仅作附带元信息透传 |
+| 仅指定 `versionName` | 不可靠；先查最新版本名，不匹配则返回 `UNSUPPORTED` |
 | 枚举历史版本 | 不支持 |
+
+> **取参原则（编排器补全后必读）**：编排器会把请求的 `versionCode↔versionName` 互补，provider 常收到**号名同时存在**的请求。
+> Google Play 的下载权威键是 `versionCode`——**只要有 code 就走直下快路**，`versionName` 只透传进 `DownloadPlan`，不再参与
+> 「是否最新」的相等性校验。`UNSUPPORTED`（只支持最新 versionName）仅在**光给 name 无 code**时才触发。曾有 bug：旧逻辑要求
+> 「有 code 且无 name」才直下，补全 name 后请求被挤出快路、再被最新版名校验误判 `UNSUPPORTED`。
 
 Token 缓存：
 

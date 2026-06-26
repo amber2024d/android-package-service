@@ -132,6 +132,57 @@ def test_specified_history_version_success(package_request):
     assert plan.files[0].url == "https://cdn.example/arrows-41.apk"
 
 
+def test_version_code_wins_over_drifted_version_name():
+    # 编排器补全后号名都带；跨源 versionName 可能格式漂移（1.17 vs 1.17.0），
+    # 按权威的 versionCode 命中，不被名一票否决误报 NOT_FOUND。
+    provider = AptoideProvider()
+    latest = _app(package_name="com.oakever.arrows", version_name="1.18.0", version_code=43, app_id=75266954)
+    old_summary = _app(package_name="com.oakever.arrows", version_name="1.17.0", version_code=41, app_id=75179738)
+    old_detail = _app(
+        package_name="com.oakever.arrows",
+        name="Amaze GO!",
+        version_name="1.17.0",
+        version_code=41,
+        md5="4a6bab92dd8c5d24c184e08aef1210a3",
+        path="https://cdn.example/arrows-41.apk",
+        app_id=75179738,
+    )
+    provider._request_json = _responder(
+        {
+            "app/get/package_name=com.oakever.arrows/aab=1": _payload(latest, versions=[latest, old_summary]),
+            "app/get/app_id=75179738/aab=1": _payload(old_detail),
+        }
+    )
+
+    plan = _run(
+        provider.get_download_plan(
+            AndroidPackageRequest(package_name="com.oakever.arrows", version_code=41, version_name="1.17")
+        )
+    )
+
+    assert plan.version_code == 41
+    assert plan.files[0].url == "https://cdn.example/arrows-41.apk"
+
+
+def test_version_code_matching_latest_ignores_drifted_name():
+    # latest 自身即命中版本：code 命中最新版、name 跨源漂移（1.18 vs 1.18.0）也直接走 current 分支，
+    # 不绕去翻历史版本、不发起二次 app_id 请求（_responder 对未注册 path 会抛错，天然锁死）。
+    provider = AptoideProvider()
+    latest = _app(package_name="com.oakever.arrows", version_name="1.18.0", version_code=43, app_id=75266954)
+    provider._request_json = _responder(
+        {"app/get/package_name=com.oakever.arrows/aab=1": _payload(latest, versions=[latest])}
+    )
+
+    plan = _run(
+        provider.get_download_plan(
+            AndroidPackageRequest(package_name="com.oakever.arrows", version_code=43, version_name="1.18")
+        )
+    )
+
+    assert plan.version_code == 43
+    assert plan.files[0].url == "https://cdn.example/fdroid.apk"
+
+
 def test_missing_download_url_maps_bad_response():
     provider = AptoideProvider()
     app = _app()
