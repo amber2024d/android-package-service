@@ -175,7 +175,12 @@ app_detail.asset.url
 app_detail.asset.type
 app_detail.asset.size
 app_detail.asset.sha1
+app_detail.update_date   # 最新版更新日期，YYYY-MM-DD（如 "2024-01-01"）；只此一个值，无历史逐版本日期
 ```
+
+> `update_date` 是本机 `apkpure-skills` SDK 实测确认的字段（`src/types/api.ts` 的 `MobileDetailResponse`），
+> 本文档原字段清单漏记。注意它是「**最新版**的更新/收录日期」，不是历史版本逐个日期，语义同 Aptoide/APKMirror
+> 的观测日期（非官方发布日），用于目录只能进 `first_seen_date` 兜底层、不进权威 `release_date`。
 
 返回给业务层时保留：
 
