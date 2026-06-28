@@ -143,3 +143,5 @@ curl "http://localhost:11010/api/v1/android/downloads/<jobId>"                 #
 - Provider 全失败：看日志里的 `request_id`、`package_name`、`provider`、`upstream_status`、`artifact_path`。
 
 更多设计见 [develop/README.md](develop/README.md)。
+
+给使用方的下载接口变动说明见 [develop/android-package-service-api-change-notice.md](develop/android-package-service-api-change-notice.md)。

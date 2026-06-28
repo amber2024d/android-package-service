@@ -7,13 +7,14 @@
 1. [系统设计总览](android-package-service-design.md)
 2. [共同架构指导](android-package-service-architecture-guidelines.md)
 3. [HTTP 接口设计](android-package-service-api.md)
-4. [Provider 工厂与来源设计](android-package-service-providers.md)
-5. [下载、校验与 XAPK 打包设计](android-package-service-download-xapk.md)
-6. [Docker Compose 部署设计](android-package-service-deployment.md)
-7. [分阶段开发计划](android-package-service-development-plan.md)
-8. [阶段详细计划](phases/README.md)
-9. [全覆盖测试用例](android-package-service-test-cases.md)
-10. [Git 提交规范](git-commit-guidelines.md)
+4. [接口变动说明：下载接口改为异步任务](android-package-service-api-change-notice.md)
+5. [Provider 工厂与来源设计](android-package-service-providers.md)
+6. [下载、校验与 XAPK 打包设计](android-package-service-download-xapk.md)
+7. [Docker Compose 部署设计](android-package-service-deployment.md)
+8. [分阶段开发计划](android-package-service-development-plan.md)
+9. [阶段详细计划](phases/README.md)
+10. [全覆盖测试用例](android-package-service-test-cases.md)
+11. [Git 提交规范](git-commit-guidelines.md)
 
 版本目录重构（已落地，阶段 10–17）：
 
