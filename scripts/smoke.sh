@@ -16,7 +16,53 @@ curl_json() {
 download() {
   path="$1"
   name="$2"
-  curl -fsSL "$BASE_URL$path" -H "X-Request-ID: smoke-$name" -o "$OUT_DIR/$name"
+  response="$OUT_DIR/$name.response"
+  status_code="$(curl -sS -L "$BASE_URL$path" -H "X-Request-ID: smoke-$name" -o "$response" -w "%{http_code}")"
+  if [ "$status_code" = "200" ]; then
+    mv "$response" "$OUT_DIR/$name"
+    return
+  fi
+  if [ "$status_code" != "202" ]; then
+    echo "download $path failed with HTTP $status_code" >&2
+    cat "$response" >&2
+    return 1
+  fi
+
+  status_url="$(json_get "$response" statusUrl)"
+  i=0
+  while [ "$i" -lt 120 ]; do
+    curl -fsS "$status_url" -H "X-Request-ID: smoke-$name-status" -o "$response"
+    job_status="$(json_get "$response" status)"
+    if [ "$job_status" = "succeeded" ]; then
+      file_url="$(json_get "$response" fileUrl)"
+      curl -fsSL "$file_url" -H "X-Request-ID: smoke-$name-file" -o "$OUT_DIR/$name"
+      return
+    fi
+    if [ "$job_status" = "failed" ]; then
+      echo "download job failed for $path" >&2
+      cat "$response" >&2
+      return 1
+    fi
+    i=$((i + 1))
+    sleep 1
+  done
+
+  echo "download job timed out for $path" >&2
+  cat "$response" >&2
+  return 1
+}
+
+json_get() {
+  file="$1"
+  key="$2"
+  python3 - "$file" "$key" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    value = json.load(f).get(sys.argv[2])
+print("" if value is None else value)
+PY
 }
 
 curl_json "/health" | grep -q '"status":"ok"'

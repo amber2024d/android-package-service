@@ -109,23 +109,49 @@ versionName 可选
 provider    可选，默认 auto
 ```
 
-规则（阶段 12 / 13）：
+规则（阶段 12 / 13 + 下载 worker）：
 
 - 经下载编排器：先用账本/目录补全 `name↔code`（有就用、查不到不阻塞），再按 provider 优先级 fallback。
-- **指定版本**时先直接尝试下载，同时**后台异步补目录**（fire-and-forget，与下载并发、不阻塞响应；同包收集单飞去重）。
-- **不传版本=最新版**走快路径，不触发目录收集。
-- 「按名」「按号」指向同一版本的并发请求归一到同一把下载锁，只下一次、复用 artifact。
+- Web 请求只做 artifact 复用探测；命中已落产物时直接返回文件流或 302。
+- 未命中时创建 `download_jobs` 任务并返回 `202`，真正下载、解压、压缩、校验由独立下载 worker 执行，不占 Web worker。
+- **指定版本**时仍会后台异步补目录（fire-and-forget，同包收集单飞去重），不阻塞入队响应。
+- 下载 worker 内部继续用原下载编排器，「按名」「按号」指向同一版本的任务归一到同一把下载锁，只下一次、复用 artifact。
 - 配了 `NAS_PUBLIC_BASE_URL`（NAS 自带 nginx 文件服务前缀）时，下载就绪后 **302 重定向到 NAS 直链**，
   让客户端从 NAS 直拉，省掉「容器经 CIFS 读大包再转发」的双跳、解放 worker；留空则由本服务流式返回（默认）。
 
 返回：
 
-- 默认：本服务流式返回安装包字节
+- `202 Accepted`：未命中缓存，返回下载任务：
+  ```json
+  { "jobId": "...", "status": "queued", "statusUrl": ".../downloads/{jobId}", "fileUrl": null }
+  ```
+- `200 OK`：命中缓存或访问已完成任务的 `fileUrl`，本服务流式返回安装包字节
   - 单 APK：`Content-Type: application/vnd.android.package-archive`
   - 多文件包 / 上游单 APKS：`Content-Type: application/zip`
   - `Content-Disposition` 中给出文件名。
 - 配了 `NAS_PUBLIC_BASE_URL`：`302 Found`，`Location` 指向 NAS nginx 直链（artifact 在 NAS 挂载下时）。
   客户端需跟随重定向（`curl -L`、浏览器默认跟随）；下游够不到 NAS 私网地址时勿配此项。
+
+调用方处理建议：
+
+```sh
+# 第一次可能返回 202 JSON；先看状态码，不要直接假设是文件。
+curl -i "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
+
+# 返回 202 时轮询 statusUrl；status=succeeded 后访问 fileUrl。
+curl "http://localhost:11010/api/v1/android/downloads/<jobId>"
+curl -L -o app.apk "http://localhost:11010/api/v1/android/downloads/<jobId>/file"
+```
+
+## 查询下载任务
+
+```http
+GET /api/v1/android/downloads/{jobId}
+GET /api/v1/android/downloads/{jobId}/file
+```
+
+- 状态接口返回 `queued` / `running` / `succeeded` / `failed`，成功后 `fileUrl` 非空。
+- `file` 接口在任务未成功时返回 `409 NOT_READY`；成功后返回文件流或 302 NAS 直链。
 
 文件名建议：
 
@@ -141,7 +167,7 @@ provider    可选，默认 auto
 GET /api/v1/android/apps/com.oakever.arrows/download?versionCode=43
 ```
 
-返回：
+若未命中 artifact，先返回 `202` 下载任务；任务完成后 `fileUrl` 返回文件名类似：
 
 ```text
 com.oakever.arrows_1.18.0_43_aptoide.xapk

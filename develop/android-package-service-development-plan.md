@@ -137,7 +137,7 @@ curl http://localhost:11010/health
   Android/obb/{packageName}/...
   ```
 
-- 单 APK 直接返回 `.apk`。
+- 单 APK 最终 artifact 为 `.apk`；接口命中缓存时直接返回文件，未命中时返回 `202` 下载任务。
 - 单 XAPK/APKS 直接校验后按原扩展名返回。
 - 多文件打包为 `.xapk`。
 - 同一包同一版本下载加进程内锁，避免重复下载。
@@ -278,11 +278,11 @@ curl http://localhost:11010/health
 任务：
 
 - 完善 Docker Compose。
-- 增加数据卷：
+- 增加数据目录/卷：
 
   ```text
-  app_data:/app/data
-  app_tmp:/app/tmp
+  ./data:/app/data
+  ./tmp:/app/tmp
   nas_apks:/mnt/nas/apks
   ```
 
@@ -325,7 +325,7 @@ curl http://localhost:11010/health
 docker compose up -d
 GET /health 正常
 GET /api/v1/android/apps/{packageName} 正常
-GET /api/v1/android/apps/{packageName}/download 正常返回 apk/xapk
+GET /api/v1/android/apps/{packageName}/download 命中缓存时正常返回 apk/xapk；未缓存时返回 202 job，任务完成后 fileUrl 返回 apk/xapk
 ```
 
 ## 推荐实际推进顺序

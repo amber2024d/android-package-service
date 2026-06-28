@@ -5,7 +5,8 @@ services:
     restart: unless-stopped
     ports:
       - "11010:8080"
-    environment:
+    environment: &app_environment
+      APP_ENV: ${APP_ENV:-production}
       PORT: 8080
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:11010}
       DATA_DIR: /app/data
@@ -14,6 +15,9 @@ services:
       DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
       DOWNLOAD_READ_TIMEOUT_SECONDS: ${DOWNLOAD_READ_TIMEOUT_SECONDS:-900}
       DOWNLOAD_CONNECT_TIMEOUT_SECONDS: ${DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-60}
+      DOWNLOAD_ASYNC_ENABLED: ${DOWNLOAD_ASYNC_ENABLED:-true}
+      DOWNLOAD_JOB_POLL_SECONDS: ${DOWNLOAD_JOB_POLL_SECONDS:-2}
+      DOWNLOAD_JOB_LEASE_SECONDS: ${DOWNLOAD_JOB_LEASE_SECONDS:-3600}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-6}
       GUNICORN_TIMEOUT_SECONDS: ${GUNICORN_TIMEOUT_SECONDS:-21600}
       PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
@@ -39,7 +43,7 @@ services:
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
       NAS_PUBLIC_BASE_URL: ${NAS_PUBLIC_BASE_URL:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
-    volumes:
+    volumes: &app_volumes
       # 持久状态用宿主目录映射（host 可见可备份、删库即删文件，无需 docker volume）：
       # ./data 含版本目录 SQLite 库 version-catalog.sqlite（名↔号账本，随使用累积、不可再生）+ WAL 边车
       # -wal/-shm + token cache + metadata；WAL 不能跑在 CIFS 上，故映射本地盘而非 NAS。./tmp 为下载暂存。
@@ -54,6 +58,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+  android-package-download-worker:
+    build: .
+    container_name: android-package-download-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.download.worker"]
+    environment: *app_environment
+    volumes: *app_volumes
+    shm_size: "1gb"
 
 # ./data、./tmp 改为宿主目录映射（见上），不再用命名卷；仅 APK 产物保留 NAS（CIFS）。
 volumes:

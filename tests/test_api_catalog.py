@@ -29,6 +29,7 @@ def _client(tmp_path: Path) -> tuple[TestClient, Path]:
     settings.provider_apkpure_web_enabled = False
     settings.provider_apkmirror_enabled = False
     settings.appmagic_enabled = False  # 钉死，避免读本地 .env 时真打上游
+    settings.download_async_enabled = False
     settings.ensure_directories()
     return TestClient(app), settings.catalog_db_path
 

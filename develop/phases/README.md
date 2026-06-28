@@ -27,7 +27,7 @@
 | 10 | [phase-10-version-catalog-store](phase-10-version-catalog-store/README.md) | SQLite 版本库 + 名↔号账本 + 下载回填钩子 |
 | 11 | [phase-11-catalog-collectors](phase-11-catalog-collectors/README.md) | 源采集器 + 动态刷新（全量/增量）+ 收集单飞 |
 | 12 | [phase-12-download-orchestrator](phase-12-download-orchestrator/README.md) | 下载编排器 + provider 纯下载化 + 下载单飞归一 |
-| 13 | [phase-13-catalog-api](phase-13-catalog-api/README.md) | 对外 /versions(downloadable) + /download(先下后台补) |
+| 13 | [phase-13-catalog-api](phase-13-catalog-api/README.md) | 对外 /versions(downloadable) + /download(入队下载 + 后台补目录) |
 | 14 | [phase-14-catalog-scheduler](phase-14-catalog-scheduler/README.md) | 后台定时刷新（5h + leader 选主） |
 
 **二期（扩源、归档、监控；各自独立、按价值排）**：
@@ -54,4 +54,3 @@
 ```
 
 每个阶段完成前只做本阶段必需能力。发现“以后可能要”的能力，先记在阶段文档的非目标里，等真实需要再加。
-

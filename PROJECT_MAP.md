@@ -10,14 +10,15 @@
 ## 模块边界
 
 - `app/api/`：请求解析、错误响应、文件响应；不写 provider 特例和下载细节。`/apps/{pkg}/versions`（阶段 13）
-  走版本目录只出 downloadable；`/download` 经编排器，指定版本时 fire-and-forget 触发后台收集（`_spawn_background`）。
-  配了 `NAS_PUBLIC_BASE_URL` 时 `/download` 改 302 重定向到 NAS nginx 直链（`nas_public_url`），把大包传输卸到 NAS、解放容器；留空则 `FileResponse` 流式返回。
+  走版本目录只出 downloadable；`/download` 只探 artifact 复用，未命中写 `download_jobs` 返回 202，由独立 worker 下载。
+  配了 `NAS_PUBLIC_BASE_URL` 时产物就绪后 302 重定向到 NAS nginx 直链（`nas_public_url`）；留空则 `FileResponse` 流式返回。
 - `app/domain/`：跨 API、provider、下载层共享的模型和错误类型。
 - `app/providers/`：上游来源适配，只产出 `AndroidPackageInfo` 和 `DownloadPlan`。
 - `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取工具（非独立 provider）。阶段 11 起 `list_versions`
   也被目录的 APKPure 采集器复用；阶段 12 收口后，provider **下载路径**默认直命中 `/download/{name}`，只在
   「按 code 且目录冷」时才用 `list_versions` 窄兜底枚举（`get_package_info`/`/apps` 仍用它列版本）。
-- `app/download/`：artifact 复用、`.part` 落盘、校验、XAPK 打包；`PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
+- `app/download/`：artifact 复用、`.part` 落盘、校验、XAPK 打包；`jobs.py` 是 SQLite 下载队列，`worker.py`
+  是独立下载进程入口（`python -m app.download.worker`）。`PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
   artifact 复用（`ArtifactStore.existing`）只做轻校验——存在 + 大小（stat）+ manifest 版本（读 zip 中央目录），**不重算整文件哈希**
   （哈希写入时已算，大包每次复用从慢 NAS 重读 150MB 会拖到分钟级）。
   下载成功后挂 `_backfill_ledger` 旁路钩子，解析产物 manifest 回填版本目录账本（失败隔离，不影响下载）。
@@ -58,8 +59,8 @@
 ## 存储
 
 - `data/`：轻量状态、provider cache、metadata、日志。
-- `data/version-catalog.sqlite`：版本目录 SQLite 单库（versions / version_sources / ledger / collection_state），本地盘、WAL（+ `-wal`/`-shm` 边车）。
-  Docker 下落在持久命名卷 `app_data`（`/app/data`），跨重启保留；持久化与备份见[部署设计](develop/android-package-service-deployment.md)。放本地卷不放 NAS（WAL 不能跑 CIFS）。
+- `data/version-catalog.sqlite`：版本目录 SQLite 单库（versions / version_sources / ledger / collection_state / download_jobs），本地盘、WAL（+ `-wal`/`-shm` 边车）。
+  Docker 下由宿主机 `./data` bind mount 到 `/app/data`，跨容器重启/重建保留；持久化与备份见[部署设计](develop/android-package-service-deployment.md)。放本地盘不放 NAS（WAL 不能跑 CIFS）。
 - `data/cache/aurora_token.json`：Google Play / Aurora 匿名 token 缓存。
 - `data/cache/google-play-data/`：gpapi 流式 data 的临时内部文件源缓存。
 - `tmp/`：下载 `.part` 和 XAPK 构建临时文件。

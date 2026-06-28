@@ -24,9 +24,10 @@
 
 下载最终文件时：
 
-- 单 APK 直接返回 `.apk`
-- APKPure 已经返回 `.xapk` / `.apks` 时，校验后按原归档类型返回
-- Google Play / Aptoide / split APK / OBB / patch 等多文件形态，统一打包成 `.xapk`
+- 已命中 artifact 时，接口直接返回 `.apk` / `.xapk` / `.apks` 文件流，或 302 到 NAS 直链。
+- 未命中 artifact 时，接口返回 `202` 下载任务；独立下载 worker 执行上游下载、校验和打包，成功后通过 `fileUrl` 取文件。
+- APKPure 已经返回 `.xapk` / `.apks` 时，worker 校验后按原归档类型落盘。
+- Google Play / Aptoide / split APK / OBB / patch 等多文件形态，worker 统一打包成 `.xapk`。
 
 版本参数：
 
@@ -61,7 +62,7 @@ Docker Compose
 第一版不做：
 
 - 不做用户系统。
-- 不做复杂任务队列。
+- 不引入 Redis/Celery 等外部复杂任务队列；下载任务使用本服务 SQLite 轻量队列。
 - 不做全量版本数据库。
 - 不做多实例共享缓存。
 - 不做长期 CDN 镜像。
@@ -101,6 +102,8 @@ android-package-service/
       verifier.py
       artifact_store.py
       xapk_builder.py
+      jobs.py               # SQLite 下载任务队列
+      worker.py             # 独立下载 worker 入口（python -m app.download.worker）
     catalog/                # 版本目录（阶段 10–17）
       store.py              # SQLite 单库（versions/version_sources/ledger/collection_state/scheduler_lock）
       ledger.py             # 名↔号账本
@@ -178,17 +181,24 @@ flowchart TD
 ```mermaid
 flowchart TD
     A["GET /api/v1/android/apps/{packageName}/download"] --> B["解析版本条件"]
-    B --> C["逐个 provider.get_download_plan()"]
-    C --> D{"拿到文件列表?"}
-    D -- "否" --> C
-    D -- "是" --> E["下载到 artifact 临时目录"]
-    E --> F["校验 size/hash/ZIP 头"]
-    F --> G{"单 base APK?"}
-    G -- "是" --> H["返回 APK"]
-    G -- "否" --> I{"上游已是 XAPK?"}
-    I -- "是" --> J["返回 XAPK"]
-    I -- "否" --> K["打包 XAPK"]
-    K --> L["返回 XAPK"]
+    B --> C["探测已有 artifact"]
+    C --> D{"命中?"}
+    D -- "是" --> E["返回文件流或 302 NAS 直链"]
+    D -- "否" --> F["写 download_jobs，返回 202 + statusUrl"]
+    F --> G["独立 download worker 认领任务"]
+    G --> H["逐个 provider.get_download_plan()"]
+    H --> I{"拿到文件列表?"}
+    I -- "否" --> H
+    I -- "是" --> J["下载到 artifact 临时目录"]
+    J --> K["校验 size/hash/ZIP 头"]
+    K --> L{"单 base APK?"}
+    L -- "是" --> M["落盘 APK，任务 succeeded"]
+    L -- "否" --> N{"上游已是 XAPK/APKS?"}
+    N -- "是" --> O["落盘 XAPK/APKS，任务 succeeded"]
+    N -- "否" --> P["打包 XAPK，任务 succeeded"]
+    M --> Q["调用方访问 fileUrl 取文件"]
+    O --> Q
+    P --> Q
 ```
 
 ## 统一数据模型

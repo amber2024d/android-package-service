@@ -65,7 +65,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
         "auth": {
             "type": "none",
             "description": "本服务对外不需要任何鉴权，所有接口均可直接调用。Google Play / APKPure 等上游来源的凭证、代理由服务端持有，调用方无需关心。",
-            "public_endpoints": ["/", "/discover", "/health", "/api/v1/android/apps/{packageName}", "/api/v1/android/apps/{packageName}/files", "/api/v1/android/apps/{packageName}/versions", "/api/v1/android/apps/{packageName}/download"],
+            "public_endpoints": ["/", "/discover", "/health", "/api/v1/android/apps/{packageName}", "/api/v1/android/apps/{packageName}/files", "/api/v1/android/apps/{packageName}/versions", "/api/v1/android/apps/{packageName}/download", "/api/v1/android/downloads/{jobId}", "/api/v1/android/downloads/{jobId}/file"],
         },
         "concepts": {
             "description": "调用本系统前需要理解的核心概念。",
@@ -74,7 +74,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
             "provider": "上游来源。默认 auto：服务端按 priority 从大到小依次尝试并自动 fallback，首个成功即返回；可用 ?provider=<id> 强制指定单一来源（该源失败即报错，不再 fallback）。可用 id 见 providers 段。",
             "artifact_types": "产物有三类：APK（单文件，Content-Type application/vnd.android.package-archive）；XAPK / APKS（ZIP 容器，application/zip，内含 base.apk + split 配置 APK +（可选）OBB）。带 split/obb 的应用会被打包为 XAPK 后返回。",
             "version_catalog": "多源聚合的版本目录，统一枚举每个包的「可下载」（downloadable）版本。/versions 首次访问会阻塞采集一次再返回，之后直接读库；新鲜度由服务端后台定时刷新维护。",
-            "download_semantics": "/download 是同步接口，直接返回安装包二进制流（不是 JSON）。命中已有 artifact 会秒回；首次下载大包可能耗时数分钟，调用方需设置足够长的读超时（建议 ≥ 900s）。指定版本时会在后台异步补采版本目录，不阻塞本次下载。",
+            "download_semantics": "/download 命中已有 artifact 时直接返回文件流/302；未命中时返回 202 JSON 并创建下载任务，由独立 worker 下载、解压/打包和校验。调用方轮询 statusUrl，成功后访问 fileUrl 取文件。指定版本时会在后台异步补采版本目录，不阻塞入队响应。",
         },
         "endpoints": {
             "apps": {
@@ -136,7 +136,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                     "method": "GET",
                     "path": "/api/v1/android/apps/{packageName}/download",
                     "auth": "public",
-                    "description": "下载并返回安装包文件流（APK / XAPK / APKS）。命中 artifact 复用则秒回；首次下载大包耗时较长。响应是二进制流，请用 -OJ 按服务端给的文件名保存。",
+                    "description": "下载安装包。命中 artifact 复用则直接返回文件流/302；未命中则返回 202 下载任务，避免 Web worker 被大包下载、解压、压缩、校验占住。",
                     "params": {
                         "path": {"packageName": "Android 包名"},
                         "query": {
@@ -147,10 +147,33 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                     },
                     "response": {
                         "200": "二进制文件流。Content-Type: application/vnd.android.package-archive（单 APK）或 application/zip（XAPK/APKS）；Content-Disposition 带 filename",
+                        "302": "配置 NAS_PUBLIC_BASE_URL 且 artifact 在 NAS 挂载下时，Location 指向 NAS HTTP 直链；客户端应跟随重定向",
+                        "202": "{ jobId, status, statusUrl, fileUrl, ... }。未命中缓存时入队，轮询 statusUrl；status=succeeded 后访问 fileUrl 取文件",
                         "404": "未找到该包/版本",
                         "502": "解析失败或产物校验和不匹配（error=VERIFY_FAILED）",
                     },
-                    "example_curl": f"curl -OJ '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download'",
+                    "example_curl": f"curl -i '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download'",
+                },
+                "download_status": {
+                    "method": "GET",
+                    "path": "/api/v1/android/downloads/{jobId}",
+                    "auth": "public",
+                    "description": "查询异步下载任务状态。status 为 queued/running/succeeded/failed；成功后 fileUrl 可下载产物。",
+                    "response": {
+                        "200": "{ jobId, status, packageName, versionCode, versionName, provider, statusUrl, fileUrl, artifactPath, error, providerErrors, createdAt, updatedAt, startedAt, finishedAt }",
+                        "404": "任务不存在",
+                    },
+                },
+                "download_file": {
+                    "method": "GET",
+                    "path": "/api/v1/android/downloads/{jobId}/file",
+                    "auth": "public",
+                    "description": "获取已完成下载任务的文件。任务未成功完成时返回 409 NOT_READY。",
+                    "response": {
+                        "200": "二进制文件流或 302 NAS 直链",
+                        "302": "配置 NAS_PUBLIC_BASE_URL 时重定向到 NAS HTTP 直链",
+                        "409": "任务未完成或产物不可用",
+                    },
                 },
             },
             "system": {
@@ -198,6 +221,9 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "DOWNLOAD_MAX_FILE_BYTES": {"default": "5368709120", "description": "单文件最大下载大小（字节），默认 5GB"},
                 "DOWNLOAD_READ_TIMEOUT_SECONDS": {"default": "900", "description": "下载读超时（秒）"},
                 "DOWNLOAD_CONNECT_TIMEOUT_SECONDS": {"default": "60", "description": "下载连接超时（秒）"},
+                "DOWNLOAD_ASYNC_ENABLED": {"default": "true", "description": "下载未命中缓存时是否入队交给独立 worker"},
+                "DOWNLOAD_JOB_POLL_SECONDS": {"default": "2", "description": "下载 worker 空闲轮询间隔（秒）"},
+                "DOWNLOAD_JOB_LEASE_SECONDS": {"default": "3600", "description": "下载任务运行租约（秒），worker 崩溃后超时可重抢"},
                 "CATALOG_REFRESH_ENABLED": {"default": "true", "description": "版本目录后台定时刷新开关"},
                 "CATALOG_REFRESH_INTERVAL_HOURS": {"default": "5", "description": "定时刷新间隔（小时）"},
                 "ARCHIVE_ENABLED": {"default": "false", "description": "主动归档：发现新版本即自动下载入 NAS（默认关）"},
@@ -228,20 +254,22 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "description": "下载某应用最新版安装包",
                 "steps": [
                     "1. GET /api/v1/android/apps/{包名}/download（不带版本参数 = 最新版，走快路径）",
-                    "2. 用 -OJ 让 curl 按响应头 Content-Disposition 的文件名保存",
-                    "3. 单 APK 返回 .apk；带 split/obb 的应用返回 .xapk（ZIP）",
+                    "2. 若返回 200/302，说明命中已有 artifact，可直接保存文件或跟随 NAS 重定向",
+                    "3. 若返回 202，轮询 statusUrl；status=succeeded 后请求 fileUrl",
+                    "4. fileUrl 返回单 APK .apk 或带 split/obb 的 .xapk（也可能 302 到 NAS 直链）",
                 ],
-                "example_curl": f"curl -OJ '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download'",
+                "example_curl": f"curl -i '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download'",
             },
             "download_specific_version": {
                 "description": "下载指定版本（优先用 versionCode，更稳）",
                 "steps": [
                     "1. 如不确定版本，先 GET .../versions 拿到候选 versionCode / versionName",
                     "2. GET /api/v1/android/apps/{包名}/download?versionCode={code}",
-                    "3. 也可用 ?versionName=8.0.1；versionCode 优先级更高、更权威",
-                    "4. 指定版本会在后台异步补采版本目录，不阻塞本次下载",
+                    "3. 未缓存会返回 202，轮询 statusUrl，成功后访问 fileUrl",
+                    "4. 也可用 ?versionName=8.0.1；versionCode 优先级更高、更权威",
+                    "5. 指定版本会在后台异步补采版本目录，不阻塞入队响应",
                 ],
-                "example_curl": f"curl -OJ '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download?versionCode=1021050'",
+                "example_curl": f"curl -i '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download?versionCode=1021050'",
             },
             "inspect_before_download": {
                 "description": "下载前先看产物文件清单（判断单 APK 还是多文件 XAPK、看大小与校验和）",
@@ -260,7 +288,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                     "2. 该源失败即直接报错，不再 fallback 到其他源",
                     "3. 指定了未启用的源会返回 400 UNSUPPORTED",
                 ],
-                "example_curl": f"curl -OJ '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download?provider=google-play'",
+                "example_curl": f"curl -i '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download?provider=google-play'",
             },
             "pick_and_download": {
                 "description": "典型 Agent 流程：列版本 → 让用户选 → 下载选中的版本",
@@ -268,9 +296,19 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                     "1. GET /api/v1/android/apps/{包名}/versions 拿到可下载版本列表",
                     "2. 把版本列表呈现给用户，让其选择一个 versionCode / versionName",
                     "3. GET /api/v1/android/apps/{包名}/download?versionCode={选中的 code}",
-                    "4. 按 Content-Disposition 文件名保存返回的二进制流",
+                    "4. 未缓存返回 202 时轮询 statusUrl，成功后访问 fileUrl 下载",
                 ],
-                "example_curl": f"curl -OJ '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download?versionCode=1021050'",
+                "example_curl": f"curl -i '{base_url}/api/v1/android/apps/org.fdroid.fdroid/download?versionCode=1021050'",
+            },
+            "poll_download_job": {
+                "description": "处理 /download 返回 202 的标准轮询流程",
+                "steps": [
+                    "1. 保存 202 响应里的 jobId/statusUrl",
+                    "2. GET statusUrl，直到 status 变为 succeeded 或 failed",
+                    "3. succeeded 时读取 fileUrl 并下载；failed 时展示 error/providerErrors",
+                    "4. fileUrl 在任务未完成前会返回 409 NOT_READY",
+                ],
+                "example_curl": f"curl '{base_url}/api/v1/android/downloads/{{jobId}}'",
             },
         },
     })

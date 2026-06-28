@@ -50,7 +50,7 @@ respx
 4. 实现基础结构化日志，先包含时间、级别、消息，request 字段留到后续阶段补齐。
 5. 实现 `app/main.py` 和 `GET /health`，返回 `{"status": "ok"}`。
 6. Dockerfile 优先使用 Playwright Python 镜像，设置 protobuf pure-python 环境变量。
-7. docker-compose 挂载 `app_data`、`app_tmp`、`nas_apks`，宿主机 `11010` 映射到容器 `8080`。
+7. docker-compose 挂载 `/app/data`、`/app/tmp`、`/mnt/nas/apks`，宿主机 `11010` 映射到容器 `8080`（当前实现用 `./data`、`./tmp` bind mount + `nas_apks`）。
 8. `.env.example` 只放示例值，不写真实 NAS 或代理凭据。
 9. 确认容器内系统 CA 可用；本地开发文档说明 `SSL_CERT_FILE` 的兜底配置。
 

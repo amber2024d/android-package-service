@@ -11,7 +11,7 @@
 ## v2 架构（2026-06-25 重构 · 权威）
 
 > 三项决策已评审确认：**① 对外 `/versions` 只暴露 downloadable；② download 命中未收集的包 / 未知历史版本时，
-> 优先直接尝试下载、同时后台异步收集目录（下载与收集各自单飞去重，见 §H）；③ 版本库用 SQLite 单库。**
+> 优先入队给独立下载 worker、同时后台异步收集目录（下载任务与收集各自单飞去重，见 §H）；③ 版本库用 SQLite 单库。**
 
 ### A. 分层与职责
 
@@ -21,7 +21,7 @@
    → [{versionName, versionCode}]    │  · 源采集器：多源抓取版本列表       │
      （仅 downloadable）             │  · SQLite 版本库（持久）           │
                                      │  · 动态刷新：首访全量 / 复访增量    │
-   POST /download                    │  · name↔code 账本（永不过期）      │
+   GET /download                     │  · name↔code 账本（永不过期）      │
      (versionName? | versionCode?    └───────────────┬──────────────────┘
       | 空=最新)                                     │ 解析「目标版本 + 选定源 + 该源下载键」
   ────────────────────────────────▶ 下载编排器 ──────┘
@@ -63,19 +63,18 @@
 - **响应不被刷新拖慢**：已跟踪的包**直接读库返回**，不在请求里触发采集（新鲜度由 §G 的定时刷新保证）；
   只有**从没采过**的包才走决策② 的首次同步收集（一次性，之后纳入定时刷新集）。见 D / G。
 
-**`POST /download` `{package, versionName?, versionCode?}`**：
+**`GET /api/v1/android/apps/{packageName}/download?versionName?&versionCode?`**：
 
-- **都不传（最新）**：快路径，provider 直取最新（apkpure-signed / google-play 的 latest），
-  **不强制全量历史收集**（最新不依赖历史库）。
-- **传具体版本（决策②）**：**优先直接尝试下载，不阻塞在目录收集上**。
-  1. 编排器先用**库/账本里已有的**信息补全 name↔code（有就用），**没有也不等收集**。
-  2. 走优先级 fallback 直接下载：各 provider 用给定的 name/code **自解析本源下载键**（APKPure 按 name 直取、
-     Google 按 code、Aptoide 现查 app_id/md5、APKMirror 走 release/变体）——**下载不依赖目录已收集**。
-  3. **同时**后台异步起一个该包的**目录收集任务**（fire-and-forget，单飞去重，见 §H）；它的产出供后续
-     `/versions` 与跨源补全，**不影响本次下载响应**。
-  4. 全链 fallback 都下不到 → 404（此时后台收集仍在补库，下次可能就能下）。
-- 产物统一落 NAS artifact，已存复用（同现状）；下载成功后照常解析 manifest 回填账本（§E）。
-- **去重**：同一 (package, 版本) 并发只下一次，后到的等待同一个下载任务并复用结果；同一包的收集任务也只跑一个。详见 §H。
+- **命中已落 artifact**：Web 请求直接返回文件流或 302 NAS 直链。
+- **未命中 artifact**：Web 请求只创建 `download_jobs` 任务并返回 `202 {jobId,statusUrl,fileUrl}`；独立 download worker
+  认领任务后再执行 provider fallback、下载、解包/打包和校验。
+- **都不传（最新）**：不触发全量历史收集；worker 里仍走 provider 最新版快路径（apkpure-signed / google-play 的 latest）。
+- **传具体版本（决策②）**：入队前先用**库/账本里已有的**信息补全 name↔code（有就用），**没有也不等收集**；
+  **同时**后台异步起该包目录收集任务（fire-and-forget，单飞去重，见 §H），其产出供后续 `/versions` 与跨源补全。
+- worker 内部走优先级 fallback：各 provider 用给定 name/code **自解析本源下载键**（APKPure 按 name、Google 按 code、
+  Aptoide 现查 app_id/md5、APKMirror 走 release/变体）——下载不依赖目录已收集。
+- 产物统一落 NAS artifact；下载成功后照常解析 manifest 回填账本（§E）。
+- **去重**：同一请求的 queued/running job 用 `request_key` 去重，重复 `/download` 返回同一个 `jobId`；worker 内部继续用下载锁避免同包同版本重复落盘；同一包的收集任务也只跑一个。详见 §H。
 
 ### C. SQLite 版本库（决策③）
 
@@ -189,7 +188,7 @@ collection_state(                           -- 驱动「全量 vs 增量」
 - **动作**：对每个包跑 §D 的**增量**采集（各源最新优先、stop-on-known，只补新增），更新
   `versions`/`version_sources`/`source_cursors`/`last_refresh_at`；账本只增不改。
 - **读路径变化**：`/versions` 对已跟踪包**直接读库返回**、不触发刷新（§B）；只有从没采过的包才首次同步收集，
-  之后自动进入本任务的刷新集。`/download` 指定版本**不阻塞收集**——直接尝试下载并后台异步收集（§B 决策② / §H）；
+  之后自动进入本任务的刷新集。`/download` 指定版本**不阻塞收集**——先入队给下载 worker，并后台异步收集（§B 决策② / §H）；
   无论哪条触发的收集，同一包都**复用同一个收集任务**（§H 单飞）。
 - **单实例保证**：gunicorn 多 worker 下任务必须**只有一个 runner**——用 SQLite 一行 `scheduler_lock` +
   `BEGIN IMMEDIATE` 选主（leader），或独立 scheduler 容器/进程。避免每个 worker 各跑一份。
@@ -214,40 +213,42 @@ collection_state(                           -- 驱动「全量 vs 增量」
 > 带超时重抢，`CATALOG_COLLECTION_LEASE_SECONDS` 默认 600s）。§H ① 的「下载单飞」复用 §10 既有下载锁；
 > 下载触发收集的 fire-and-forget 接线在阶段 12。
 
-`/download` 命中未收集包 / 未知版本时：**直接尝试下载**（§B），**并发**起一个该包的目录收集任务。两条路各自单飞，
+`/download` 命中未收集包 / 未知版本时：Web 请求**直接入队**（§B），**并发**起一个该包的目录收集任务。下载和收集两条路各自单飞，
 互不阻塞。要防三种重复：
 
-**① 下载单飞（同包同版本只下一次）** —— **现有能力，复用**。
-`PackageDownloader` 已有按 `(provider, package, version_key)` 的 `asyncio.Lock` + 先查 `store.existing(plan)`
-复用 artifact：同一目标并发时，第一个下，后到的拿锁后看到 artifact 已存即直接返回。**「后面同样的都等一个下载任务」
-本就成立**。需补一处：编排器先按**已知 name↔code 归一**下载键（优先 versionCode，缺则 versionName），
-让「按名」「按号」指向同一版本的请求落到**同一把锁**，不会并行下成两份。
+**① 下载任务单飞（同一请求只排一个 active job）**。
+`DownloadJobStore` 用 `request_key(package, versionCode, versionName, provider)` 做 queued/running 唯一索引；
+重复调用 `/download` 会返回同一个 `jobId`，不会把 Web worker 堵在下载过程里。worker 崩溃时，`lease_expires`
+超时后 running job 可被其他 worker 重抢。
 
-> **落地（阶段 12）**：① 的归一已实现——编排器补全 name↔code 后把归一版本引用传给 `downloader.download` 的
-> `lock_version_key`，`_lock_key` 按 code 优先→补全值→name/latest 计算锁 key（只增不减、冷目录与重构前等价）。
+**② 下载落盘单飞（同包同版本只落一份 artifact）**。
+worker 内部继续复用 `PackageDownloader` 的 `(provider, package, version_key)` 锁 + artifact 探测；
+编排器补全 name↔code 后把归一版本引用传给 `downloader.download(lock_version_key=...)`，让「按名」「按号」
+指向同一版本的请求落到同一把锁，不会并行落两份。
 
-**② 收集单飞（同包只收集一个任务）** —— **新增**。
+**③ 收集单飞（同包只收集一个任务）**。
 - **进程内**：`dict[package, asyncio.Task]`（或 `asyncio.Event`）。触发时若该包已有在跑的收集任务，**直接复用**
   （fire-and-forget 者不管它，`/versions` 首采者 `await` 它），不另起第二个；任务结束从表里移除。
 - **跨 worker**：`collection_state` 加租约字段 `collecting_owner` / `collecting_since` / `lease_expires`，
   用 `BEGIN IMMEDIATE` 抢租约：抢到才收集，抢不到说明别的 worker 在收，跳过；**租约带超时**（防 worker 崩溃后
   永久占用，超时后他人可重抢）。这与 §G 定时任务**共用同一把收集单飞**——定时刷新和下载触发不会双采同一包。
 
-**③ 触发即忘 + 幂等**：下载路径**只触发、不 await**收集；收集失败只记日志，**绝不影响下载响应**。收集对
+**④ 触发即忘 + 幂等**：下载路径**只触发、不 await**收集；收集失败只记日志，**绝不影响下载响应**。收集对
 `versions`/`version_sources` 做 upsert（幂等），账本 append-only（重复写幂等），与「下载成功回填账本」并发安全
 （同一把 per-package 锁或 upsert 冲突忽略）。
 
 时序示例（同一包 P 短时间多请求）：
 
 ```text
-t0  /download P@2.30.0  → 取下载锁(P,2.30.0) 开始下；并触发收集(P) → 抢到租约，后台收集开始
-t1  /download P@2.30.0  → 取同一下载锁，阻塞；收集(P) 已在跑 → 跳过（复用）
-t2  /versions  P        → 收集(P) 已在跑 → await 它；不另起
-t3  下载完成            → t1 拿到锁，见 artifact 已存 → 直接复用返回
-t4  收集完成            → 写库/账本；/versions(t2) 拿到结果返回；释放租约
+t0  /download P@2.30.0  → 未命中 artifact，写 download_jobs(J) 返回 202；并触发收集(P) → 抢到租约，后台收集开始
+t1  /download P@2.30.0  → 命中 active request_key，返回同一个 jobId=J；收集(P) 已在跑 → 跳过（复用）
+t2  worker              → claim J，取下载锁(P,2.30.0)，下载/打包/校验，mark succeeded
+t3  /versions  P        → 收集(P) 已在跑 → await 它；不另起
+t4  客户端轮询 J        → status=succeeded，访问 fileUrl 取 artifact
+t5  收集完成            → 写库/账本；/versions(t3) 拿到结果返回；释放租约
 ```
 
-> 结论：**下载快（不等目录）、目录终会补齐（后台）、同包同版本不重复下、同包不重复收集**。
+> 结论：**接口快（不等下载/目录）、目录终会补齐（后台）、同请求不重复排队、同包同版本不重复落盘、同包不重复收集**。
 
 ---
 
@@ -568,9 +569,9 @@ known-only、「没有任何源能给 code 或文件」的版本段。且每个�
 - **（v2）ensure-collected**：未采过 → 全量 upsert；采过 → 增量 stop-on-known 只补新增；TTL 内不重采。
 - **（v2）对外 downloadable-only**：`/versions` 不出 known-only；known-only 仍可在内部库（`downloadable=0`）。
 - **（v2）provider 纯下载**：provider 不枚举，只按编排器传入的「版本 + 源下载键」取文件。
-- **（v2）download 未收集（决策②）**：指定版本命中未采包 → **直接尝试下载**（不阻塞收集）+ 后台异步触发收集；
-  全链 fallback 下不到 → 404；最新版走快路径不触发收集。
-- **（v2）单飞去重（§H）**：同 (package, 版本) 并发只下一次、后到者复用 artifact；name/code 别名归一到同一把下载锁；
+- **（v2）download 未收集（决策②）**：指定版本命中未采包 → 未命中 artifact 时返回 202 job（不阻塞下载/收集）+ 后台异步触发收集；
+  worker 全链 fallback 下不到 → job failed；最新版走快路径不触发收集。
+- **（v2）单飞去重（§H）**：同 request_key 并发只排一个 active job；name/code 别名归一到同一把下载锁；
   同包并发触发只跑一个收集任务（进程内 + 跨 worker 租约）；收集失败不影响下载响应。
 - **（v2）定时刷新**：每 5h 对已跟踪包跑增量；`/versions` 读路径不触发刷新（已跟踪包直接读库）；多 worker 下只有一个 runner（leader 锁）；单包失败不阻断整轮。
 

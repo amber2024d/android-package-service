@@ -58,8 +58,8 @@ PROVIDER_APKPURE_WEB_ENABLED=true
 PROVIDER_APKMIRROR_ENABLED=false   # 深历史源（二期），按需开
 ```
 
-版本目录的可选能力（默认关，见 `.env.example`）：定时刷新 `CATALOG_REFRESH_ENABLED`、主动归档
-`ARCHIVE_ENABLED`、AppMagic known 监控源 `APPMAGIC_ENABLED`。
+版本目录定时刷新 `CATALOG_REFRESH_ENABLED` 默认开启，用于后台维护已跟踪包的新鲜度；主动归档
+`ARCHIVE_ENABLED` 和 AppMagic known 监控源 `APPMAGIC_ENABLED` 默认关闭。
 
 大包下载可按网络情况调大：
 
@@ -67,9 +67,15 @@ PROVIDER_APKMIRROR_ENABLED=false   # 深历史源（二期），按需开
 DOWNLOAD_MAX_FILE_BYTES=5368709120
 DOWNLOAD_READ_TIMEOUT_SECONDS=900
 DOWNLOAD_CONNECT_TIMEOUT_SECONDS=60
+DOWNLOAD_ASYNC_ENABLED=true
+DOWNLOAD_JOB_POLL_SECONDS=2
+DOWNLOAD_JOB_LEASE_SECONDS=3600
 WEB_CONCURRENCY=6
 GUNICORN_TIMEOUT_SECONDS=21600
 ```
+
+默认启用异步下载：`/download` 未命中 artifact 时只入队返回 `202`，真正下载、解包、打包和校验由
+`android-package-download-worker` 容器执行；Web worker 只处理查询、入队和已完成文件响应。
 
 优先级数值越大越先尝试：
 
@@ -124,13 +130,15 @@ curl http://localhost:11010/health
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid"
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/versions"   # 版本目录：可下载版本列表
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/files"
-curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
+curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"   # 命中缓存直接文件；未缓存返回 202 job
+curl "http://localhost:11010/api/v1/android/downloads/<jobId>"                 # 轮询 statusUrl；成功后访问 fileUrl
 ```
 
 ## 排查
 
 - NAS 启动失败：检查 `NAS_HOST`、`NAS_SHARE_PATH`、账号密码、CIFS 端口和共享目录写权限。
-- 下载超时：检查代理配置，或调大 `DOWNLOAD_READ_TIMEOUT_SECONDS`、`GUNICORN_TIMEOUT_SECONDS` 和反向代理 `proxy_read_timeout` / `proxy_send_timeout`。
+- 下载排队：`/download` 未命中缓存会返回 `202`，轮询 `statusUrl`；`status=succeeded` 后访问 `fileUrl`。
+- 下载超时：检查代理配置，或调大 `DOWNLOAD_READ_TIMEOUT_SECONDS`；下载由独立 worker 执行，不占 Web worker。
 - TLS/CA 错误：不要关闭证书校验；在容器或宿主机安装有效 CA，必要时设置 `SSL_CERT_FILE` 指向 CA bundle。
 - Provider 全失败：看日志里的 `request_id`、`package_name`、`provider`、`upstream_status`、`artifact_path`。
 

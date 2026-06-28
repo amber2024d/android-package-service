@@ -264,26 +264,28 @@ curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid"
 ### S003 下载小 APK
 
 ```sh
-curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
+curl -i "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 ```
 
-预期：返回 `.apk`，文件以 `PK` 开头。
+预期：命中缓存时直接返回 `.apk`/302；未缓存时返回 `202` 下载任务。轮询 `statusUrl`，成功后访问 `fileUrl`，文件以 `PK` 开头。
 
 ### S004 下载 split XAPK
 
 ```sh
-curl -OJ "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?provider=aptoide"
+curl -i "http://localhost:11010/api/v1/android/apps/com.oakever.arrows/download?provider=aptoide"
 ```
 
-预期：返回 `.xapk`，zip 内包含 manifest 和 split。
+预期：命中缓存时直接返回 `.xapk`/302；未缓存时返回 `202` 下载任务。任务完成后的 `fileUrl` 返回 zip，内含 manifest 和 split。
 
 ### S005 下载 APKPure XAPK
 
 ```sh
-curl -OJ "http://localhost:11010/api/v1/android/apps/com.abi.busjam.sortpuzzle/download?provider=apkpure-signed"
+curl -i "http://localhost:11010/api/v1/android/apps/com.abi.busjam.sortpuzzle/download?provider=apkpure-signed"
 ```
 
-预期：返回 `.xapk`，sha1/size 校验通过。
+预期：命中缓存时直接返回 `.xapk`/302；未缓存时返回 `202` 下载任务。任务完成后产物 sha1/size 校验通过。
+
+也可以直接运行 `BASE_URL=http://localhost:11010 scripts/smoke.sh`，脚本会自动处理 `202 -> statusUrl -> fileUrl`。
 
 ### S006 重复下载复用 artifact
 

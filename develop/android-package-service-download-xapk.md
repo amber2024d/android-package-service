@@ -110,7 +110,7 @@ targetSdkVersion
 
 ## 单 APK 返回
 
-当 `DownloadPlan.files` 满足以下条件时，直接返回 `.apk`：
+当下载 worker 拿到的 `DownloadPlan.files` 满足以下条件时，最终 artifact 为 `.apk`：
 
 ```text
 files.size == 1
@@ -208,9 +208,11 @@ APKPure 有时直接返回 `.xapk` 或 `.apks`。
 
 ## 并发与安全边界
 
-第一版只做进程内轻量保护：
+当前实现：
 
-- 同一个 `{provider, packageName, version}` 下载时用 `asyncio.Lock` 避免重复下载。
+- Web API 未命中 artifact 时写入 SQLite `download_jobs` 并返回 `202`，独立 worker 执行下载、校验和 XAPK 打包。
+- 同一请求的 queued/running job 用 `request_key` 去重，重复 `/download` 返回同一个 `jobId`。
+- worker 内部对同一个 `{provider, packageName, version}` 下载用 `asyncio.Lock` 避免重复落盘。
 - 文件名只使用标准化后的包名和版本字段。
 - 上游 URL 仅接受 `http` 和 `https`。
 - 上游 URL 不允许指向 localhost、内网地址、链路本地地址和 file URL，避免 SSRF。
@@ -221,4 +223,4 @@ APKPure 有时直接返回 `.xapk` 或 `.apks`。
 
 - 分布式锁。
 - 多实例共享缓存一致性。
-- 下载任务持久化队列。
+- Redis/Celery 等外部任务队列。

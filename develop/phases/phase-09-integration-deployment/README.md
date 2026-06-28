@@ -26,7 +26,7 @@ tests/
 ## 实施步骤
 
 1. 完善 `.env.example`，列出 NAS、provider 开关、provider 优先级、代理配置、下载大小上限。
-2. docker-compose 增加 `app_data`、`app_tmp`、`nas_apks` volume。
+2. docker-compose 增加 `./data:/app/data`、`./tmp:/app/tmp` 目录映射和 `nas_apks` volume。
 3. 配置 NAS CIFS volume：`NAS_HOST`、`NAS_PORT`、`NAS_USER`、`NAS_PASSWORD`、`NAS_SHARE_PATH`。
 4. 服务启动时检查 NAS artifact 目录可写，不可写直接失败。
 5. 增加健康检查和容器 restart 策略。
@@ -55,14 +55,14 @@ GET /api/v1/android/apps/{APKPure XAPK 测试包}/download
 docker compose up -d
 curl http://localhost:11010/health
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid"
-curl -OJ "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
+curl -i "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"
 ```
 
 通过条件：
 
 - 健康检查正常。
 - 查询接口正常。
-- 下载接口返回 `.apk` 或 `.xapk`。
+- 下载接口命中缓存时返回 `.apk` 或 `.xapk`；未缓存时返回 `202` 下载任务，轮询 `statusUrl` 后从 `fileUrl` 取文件。
 - NAS artifact 目录写入 metadata 和最终文件。
 - provider 失败时日志可定位到上游来源和错误类型。
 

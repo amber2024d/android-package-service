@@ -9,6 +9,15 @@ services:
       # ./data、./tmp 已由 base 映射宿主目录；这里仅把 APK 产物从 NAS 改到本地 ./artifacts（本地测试不连 NAS）。
       - ./artifacts:/mnt/nas/apks
 
+  android-package-download-worker:
+    environment:
+      APP_ENV: development
+      PUBLIC_BASE_URL: http://localhost:11010
+      PROVIDER_FAKE_ENABLED: "true"
+      PROVIDER_FAKE_FAILING_ENABLED: "true"
+    volumes:
+      - ./artifacts:/mnt/nas/apks
+
 volumes:
   # 覆盖 base 的 nas_apks（CIFS）为本地驱动，避免本地测试解析 NAS 变量。
   nas_apks:

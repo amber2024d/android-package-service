@@ -21,6 +21,7 @@ def _client(tmp_path: Path) -> tuple[TestClient, Path]:
     settings.provider_aptoide_enabled = False
     settings.provider_apkpure_proto_enabled = False
     settings.provider_apkpure_web_enabled = False
+    settings.download_async_enabled = False
     settings.ensure_directories()
     return TestClient(app), settings.catalog_db_path
 

@@ -73,6 +73,16 @@ class DownloadOrchestrator:
                 self._log_failures(completed, [exc.provider_error], request_id)
         raise AggregateProviderError(errors)
 
+    def existing(self, request: AndroidPackageRequest) -> Path | None:
+        """只探已落 artifact，不解析 provider、不下载。给 Web 入队前保留缓存快路径。"""
+        completed = self._complete(request)
+        providers = self.factory.resolve(completed.preferred_provider)
+        for provider in providers:
+            artifact = self._existing_artifact(provider.id, completed)
+            if artifact is not None:
+                return artifact
+        return None
+
     # ---- 抓取前先探已有产物（决策①②） --------------------------------------- #
 
     def _existing_artifact(self, provider_id: str, completed: AndroidPackageRequest) -> Path | None:

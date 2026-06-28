@@ -18,6 +18,11 @@ docker compose up -d
 - Playwright Chromium 及系统依赖
 - APK/XAPK 下载和打包逻辑
 
+当前 Compose 拆成两个进程角色：
+
+- `android-package-service`：Web API，负责查询、artifact 快路径、下载任务入队和已完成文件响应。
+- `android-package-download-worker`：独立下载 worker，轮询 `download_jobs`，执行上游下载、解包/打包和校验。
+
 ## docker-compose.yml
 
 建议形态：
@@ -30,7 +35,8 @@ services:
     restart: unless-stopped
     ports:
       - "11010:8080"
-    environment:
+    environment: &app_environment
+      APP_ENV: ${APP_ENV:-production}
       PORT: 8080
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:11010}
       DATA_DIR: /app/data
@@ -39,6 +45,9 @@ services:
       DOWNLOAD_MAX_FILE_BYTES: ${DOWNLOAD_MAX_FILE_BYTES:-5368709120}
       DOWNLOAD_READ_TIMEOUT_SECONDS: ${DOWNLOAD_READ_TIMEOUT_SECONDS:-900}
       DOWNLOAD_CONNECT_TIMEOUT_SECONDS: ${DOWNLOAD_CONNECT_TIMEOUT_SECONDS:-60}
+      DOWNLOAD_ASYNC_ENABLED: ${DOWNLOAD_ASYNC_ENABLED:-true}
+      DOWNLOAD_JOB_POLL_SECONDS: ${DOWNLOAD_JOB_POLL_SECONDS:-2}
+      DOWNLOAD_JOB_LEASE_SECONDS: ${DOWNLOAD_JOB_LEASE_SECONDS:-3600}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-6}
       GUNICORN_TIMEOUT_SECONDS: ${GUNICORN_TIMEOUT_SECONDS:-21600}
       PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
@@ -59,11 +68,13 @@ services:
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
       NAS_PUBLIC_BASE_URL: ${NAS_PUBLIC_BASE_URL:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
-    volumes:
-      # 持久状态卷：含版本目录 SQLite 库 + WAL 边车 + token cache + metadata（详见「存储目录」）。
-      # 命名卷跨重启/重建/down（不带 -v）保留；勿 `down -v` / `volume rm`，会清空名↔号账本。
-      - app_data:/app/data
-      - app_tmp:/app/tmp
+    volumes: &app_volumes
+      # 持久状态用宿主目录映射（host 可见可备份、删库即删文件，无需 docker volume）：
+      # ./data 含版本目录 SQLite 库 version-catalog.sqlite（名↔号账本 + download_jobs，随使用累积、不可再生）
+      # + WAL 边车 + token cache + metadata；WAL 不能跑在 CIFS 上，故映射本地盘而非 NAS。./tmp 为下载暂存。
+      - ./data:/app/data
+      - ./tmp:/app/tmp
+      # APK 产物仍走 NAS（CIFS 命名卷，见底部 volumes 定义）。
       - nas_apks:/mnt/nas/apks
     shm_size: "1gb"
     deploy:
@@ -80,11 +91,16 @@ services:
       retries: 3
       start_period: 10s
 
+  android-package-download-worker:
+    build: .
+    container_name: android-package-download-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.download.worker"]
+    environment: *app_environment
+    volumes: *app_volumes
+    shm_size: "1gb"
+
 volumes:
-  app_data:
-    driver: local
-  app_tmp:
-    driver: local
   nas_apks:
     driver_opts:
       type: cifs
@@ -94,19 +110,20 @@ volumes:
 
 说明：
 
-- `app_data` 保存 token cache、metadata、轻量状态，**以及版本目录 SQLite 库 `version-catalog.sqlite`
-  （名↔号账本，随使用累积、不可再生）**。这是**持久状态**不是缓存：命名卷 `app_data`（driver: local）跨
-  容器重启/重建/`docker compose down`（不带 `-v`）都保留，重启不丢数据；**但 `docker compose down -v` /
-  `docker volume rm` 会连卷一起删，账本随之清空**，运维需避免，并建议定期备份（见「存储目录」）。
-- `app_tmp` 保存下载过程中的临时文件，可随时丢弃。
+- `./data` 保存 token cache、metadata、轻量状态，**以及版本目录 SQLite 库 `version-catalog.sqlite`
+  （名↔号账本 + `download_jobs`，随使用累积、不可再生）**。这是**持久状态**不是缓存：容器重启/重建不会丢，
+  但删除宿主机 `./data` 会清空账本和下载任务，运维需避免，并建议定期备份（见「存储目录」）。
+- `./tmp` 保存下载过程中的临时文件，可随时丢弃。
 - `nas_apks` 挂载 NAS，用来保存 APK/XAPK 这类大文件 artifact，避免占满服务器磁盘。
 - `NAS_PUBLIC_BASE_URL`：NAS 自带 HTTP 文件服务（nginx）对外前缀，其根须对应 `NAS_MOUNT_PATH` 根
   （如 `/mnt/nas/apks` ↔ `http://10.0.0.6:5003/android-packages`）。配置后 `/download` 改为 **302 重定向到
   NAS 直链**，把大包传输从「容器经 CIFS 读 150MB 再转发」双跳卸到 NAS nginx 直供，解放 worker、不占容器带宽。
   留空（默认）则本服务流式返回。**仅当下游客户端能直连该地址时启用**（内网/同网段；外网够不到 NAS 私网 IP 时勿配）。
 - `shm_size` 是给 Playwright Chromium 留空间，避免网页兜底路径在容器里不稳定。
-- **版本目录库放本地卷 `app_data`、不放 NAS（CIFS）卷**：SQLite WAL 依赖本地文件锁/共享内存，跑在
+- **版本目录库放宿主机本地目录 `./data`、不放 NAS（CIFS）卷**：SQLite WAL 依赖本地文件锁/共享内存，跑在
   CIFS 上会损坏；NAS 卷只承载只读复用的大文件 artifact。
+- `WEB_CONCURRENCY` 只控制 Web API 的 gunicorn worker 数；下载并发由独立 worker 服务数量和内部下载链路决定。
+  默认先跑 1 个下载 worker，避免大包并发把上游带宽、NAS 和临时盘打满；需要更高下载吞吐时再横向扩 worker。
 
 ## Dockerfile
 
@@ -161,6 +178,9 @@ TEMP_DIR=/app/tmp
 DOWNLOAD_MAX_FILE_BYTES=5368709120
 DOWNLOAD_READ_TIMEOUT_SECONDS=900
 DOWNLOAD_CONNECT_TIMEOUT_SECONDS=60
+DOWNLOAD_ASYNC_ENABLED=true
+DOWNLOAD_JOB_POLL_SECONDS=2
+DOWNLOAD_JOB_LEASE_SECONDS=3600
 WEB_CONCURRENCY=6
 GUNICORN_TIMEOUT_SECONDS=21600
 
@@ -238,7 +258,7 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 职责：
 
 ```text
-/app/data        持久状态：版本目录 SQLite 库、provider cache、metadata（命名卷，必须持久化）
+/app/data        持久状态：版本目录 SQLite 库、provider cache、metadata（宿主机 ./data，必须持久化）
 /app/tmp         下载中的 .part 文件、XAPK 打包临时目录（可丢弃）
 /mnt/nas/apks    最终 APK/XAPK artifact
 ```
@@ -247,7 +267,7 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 
 ```text
 /app/data
-  version-catalog.sqlite        版本目录单库（versions/version_sources/ledger/collection_state）
+  version-catalog.sqlite        版本目录单库（versions/version_sources/ledger/collection_state/download_jobs）
   version-catalog.sqlite-wal     WAL 边车（与库同卷，重启/崩溃后回放，不可单独删）
   version-catalog.sqlite-shm     WAL 共享内存索引
   cache/
@@ -277,8 +297,8 @@ docker compose exec android-package-service \
   sqlite3 /app/data/version-catalog.sqlite ".backup '/app/data/version-catalog.backup.sqlite'"
 ```
 
-若运维更希望库落在显式的宿主机目录（便于直接备份/迁移），可把 `app_data` 换成 bind mount（如
-`/opt/android-package-service/data:/app/data`，参考 dev 变体的 `./data:/app/data`），持久性等价，目录更可见。
+若运维更希望放到固定运维目录（便于直接备份/迁移），可把 `./data:/app/data` 改成
+`/opt/android-package-service/data:/app/data`，持久性等价，目录更可见。
 
 NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘。这样可以避免大文件悄悄把服务器磁盘打满。
 
@@ -303,7 +323,17 @@ NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘�
   不阻断整轮；整轮记 `catalog_refresh_round_ok`（ok/failed 计数）。
 - 关停：`CATALOG_REFRESH_ENABLED=false` 不启动调度器（如想用独立 scheduler 容器/外部触发时）。
 - 选型理由：刷新集就是「服务用过的包」，量级可控、逐包串行即可；进程内 + leader 锁零额外运维，
-  比独立容器简单。包很多需要分片/错峰时再考虑拆独立 worker。
+  比独立 scheduler 容器简单。包很多需要分片/错峰时再考虑拆独立 scheduler。
+
+## 下载 worker
+
+下载任务由 `android-package-download-worker` 容器承载：
+
+- `/download` 未命中 artifact 时，Web API 只写 `download_jobs` 并返回 `202 {jobId,statusUrl,fileUrl}`。
+- worker 每 `DOWNLOAD_JOB_POLL_SECONDS` 秒认领 queued 任务，执行原有 `DownloadOrchestrator.download`。
+- 任务租约由 `DOWNLOAD_JOB_LEASE_SECONDS` 控制；worker 崩溃后租约过期，其他 worker 可重抢 running 任务。
+- 相同请求的 queued/running 任务用 `request_key` 去重；重复调用 `/download` 会拿到同一个 `jobId`。
+- `DOWNLOAD_ASYNC_ENABLED=false` 可退回旧的同步下载路径，仅用于本地调试或排障，不建议线上开启。
 
 ## 反向代理
 

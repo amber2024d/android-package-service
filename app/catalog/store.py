@@ -10,6 +10,7 @@ from typing import ClassVar
 #   version_sources   —— provenance + 各源「稳定」下载键
 #   ledger            —— name↔code 账本，不可变、append-only、永不过期
 #   collection_state  —— 驱动「全量 vs 增量」刷新 + 跨 worker 收集租约
+#   download_jobs     —— API 入队、独立下载 worker 认领执行，避免 Web worker 扛大包
 # 阶段 10 只写 ledger（下载回填）；其余三表先建好，供阶段 11–14 使用。
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS versions (
@@ -57,6 +58,30 @@ CREATE TABLE IF NOT EXISTS scheduler_lock (
     since TEXT,
     expires TEXT
 );
+
+CREATE TABLE IF NOT EXISTS download_jobs (
+    id TEXT PRIMARY KEY,
+    request_key TEXT NOT NULL,
+    package TEXT NOT NULL,
+    version_code INTEGER,
+    version_name TEXT,
+    provider TEXT,
+    status TEXT NOT NULL,
+    artifact_path TEXT,
+    error TEXT,
+    provider_errors TEXT,
+    request_id TEXT,
+    worker TEXT,
+    lease_expires TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_download_jobs_status_created ON download_jobs(status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_download_jobs_active_request
+ON download_jobs(request_key) WHERE status IN ('queued', 'running');
 """
 
 # 阶段 10 建的旧库 collection_state 没有租约列；幂等补列，不丢数据。

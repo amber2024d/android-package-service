@@ -18,6 +18,7 @@ from app.core.logging import log_event
 from app.domain.errors import AggregateProviderError
 from app.domain.models import AndroidPackageRequest, CatalogVersion, CatalogVersionsResponse
 from app.download.downloader import PackageDownloader
+from app.download.jobs import DownloadJob, DownloadJobStore
 from app.providers.factory import ProviderFactory
 
 router = APIRouter(prefix="/api/v1/android")
@@ -56,6 +57,10 @@ def get_orchestrator(
     downloader: PackageDownloader = Depends(get_downloader),
 ) -> DownloadOrchestrator:
     return DownloadOrchestrator(CatalogStore(settings.catalog_db_path), factory, downloader)
+
+
+def get_download_jobs(settings: Settings = Depends(get_settings)) -> DownloadJobStore:
+    return DownloadJobStore(CatalogStore(settings.catalog_db_path), lease_seconds=settings.download_job_lease_seconds)
 
 
 def get_catalog(settings: Settings = Depends(get_settings)) -> VersionCatalog:
@@ -167,6 +172,7 @@ async def download_app(
     provider: str | None = Query(default=None),
     settings: Settings = Depends(get_settings),
     orchestrator: DownloadOrchestrator = Depends(get_orchestrator),
+    jobs: DownloadJobStore = Depends(get_download_jobs),
     catalog: VersionCatalog = Depends(get_catalog),
 ):
     request_id = request_id_for(http_request)
@@ -175,11 +181,68 @@ async def download_app(
     # 不传版本=最新版快路径，不触发收集。
     if version_code is not None or version_name is not None:
         _spawn_background(catalog.ensure_collected(package_name, need_history=True))
+    if not settings.download_async_enabled:
+        try:
+            artifact = await orchestrator.download(request, request_id=request_id)
+        except AggregateProviderError as exc:
+            return error_response(exc)
+        return artifact_response(settings, artifact)
     try:
-        artifact = await orchestrator.download(request, request_id=request_id)
+        artifact = orchestrator.existing(request)
     except AggregateProviderError as exc:
-        # 编排器已逐条记 provider_failed / 解析失败；这里只负责出错误响应。
         return error_response(exc)
+    if artifact is None:
+        job = jobs.enqueue(request, request_id)
+        log_event(
+            logger,
+            "download_queued",
+            request_id=request_id,
+            job_id=job.id,
+            package_name=package_name,
+            version_code=version_code,
+            version_name=version_name,
+            provider=provider,
+        )
+        return JSONResponse(download_job_response(http_request, job), status_code=202)
+    log_event(
+        logger,
+        "download_ready",
+        request_id=request_id,
+        package_name=package_name,
+        version_code=version_code,
+        version_name=version_name,
+        artifact_path=str(artifact),
+    )
+    return artifact_response(settings, artifact)
+
+
+@router.get("/downloads/{job_id}")
+async def get_download_job(
+    http_request: Request,
+    job_id: str,
+    jobs: DownloadJobStore = Depends(get_download_jobs),
+):
+    job = jobs.get(job_id)
+    if job is None:
+        return JSONResponse({"error": "NOT_FOUND", "message": "Download job not found."}, status_code=404)
+    return JSONResponse(download_job_response(http_request, job))
+
+
+@router.get("/downloads/{job_id}/file")
+async def get_download_job_file(
+    job_id: str,
+    settings: Settings = Depends(get_settings),
+    jobs: DownloadJobStore = Depends(get_download_jobs),
+):
+    job = jobs.get(job_id)
+    if job is None:
+        return JSONResponse({"error": "NOT_FOUND", "message": "Download job not found."}, status_code=404)
+    if job.status != "succeeded" or job.artifact_path is None or not job.artifact_path.exists():
+        return JSONResponse({"error": "NOT_READY", "message": "Download job has no ready artifact."}, status_code=409)
+    return artifact_response(settings, job.artifact_path)
+
+
+def artifact_response(settings: Settings, artifact: Path):
     # 配了 NAS 直供前缀就 302 重定向到 NAS nginx 直链，把大包传输从容器卸到 NAS（默认走 FileResponse）。
     nas_url = nas_public_url(settings, artifact)
     if nas_url:
@@ -189,6 +252,31 @@ async def download_app(
         media_type=media_type_for(artifact),
         filename=artifact.name,
     )
+
+
+def download_job_response(request: Request, job: DownloadJob) -> dict:
+    base = str(request.base_url).rstrip("/")
+    status_url = f"{base}/api/v1/android/downloads/{job.id}"
+    file_url = f"{status_url}/file" if job.status == "succeeded" else None
+    return {
+        "jobId": job.id,
+        "status": job.status,
+        "packageName": job.request.package_name,
+        "versionCode": job.request.version_code,
+        "versionName": job.request.version_name,
+        "provider": job.request.preferred_provider,
+        "statusUrl": status_url,
+        "fileUrl": file_url,
+        "artifactPath": str(job.artifact_path) if job.artifact_path else None,
+        "error": job.error,
+        "providerErrors": [
+            error.model_dump(mode="json") for error in job.provider_errors
+        ] if job.provider_errors else [],
+        "createdAt": job.created_at,
+        "updatedAt": job.updated_at,
+        "startedAt": job.started_at,
+        "finishedAt": job.finished_at,
+    }
 
 
 def nas_public_url(settings: Settings, artifact: Path) -> str | None:

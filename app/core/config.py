@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     download_max_file_bytes: int = 5 * 1024 * 1024 * 1024
     download_read_timeout_seconds: float = 900.0
     download_connect_timeout_seconds: float = 60.0
+    download_async_enabled: bool = True
+    download_job_poll_seconds: float = 2.0
+    download_job_lease_seconds: int = 3600
 
     provider_fake_enabled: bool = True
     provider_fake_failing_enabled: bool = True
