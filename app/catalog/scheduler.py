@@ -7,7 +7,9 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 from app.catalog.catalog import VersionCatalog
-from app.core.logging import log_event
+from app.catalog.runtime import build_catalog
+from app.core.config import get_settings
+from app.core.logging import configure_logging, log_event
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +17,7 @@ logger = logging.getLogger(__name__)
 class CatalogRefreshScheduler:
     """后台定时刷新（§G）：每 interval 对**已跟踪包**跑强制增量，把「保持新鲜」挪到后台。
 
-    - **leader 选主**：`scheduler_lock` 单行 + `BEGIN IMMEDIATE`，多 worker 只一个 runner；租约带超时，
+    - **leader 选主**：`scheduler_lock` 单行 + `BEGIN IMMEDIATE`，多实例只一个 runner；租约带超时，
       leader 崩溃后超时可被他人重抢。
     - **限流与隔离**：逐包串行（避免同时多包过 Cloudflare / 触发封号），单包失败只记日志不阻断整轮；
       整轮 ok/failed 可观测。
@@ -39,16 +41,17 @@ class CatalogRefreshScheduler:
         self._owner = owner or f"{socket.gethostname()}:{os.getpid()}"
 
     async def run_forever(self, stop: asyncio.Event) -> None:
-        """周期循环：启动即跑一轮，之后每 interval 一轮；`stop` 置位即退出（lifespan 关停用）。"""
+        """周期循环：先等待一个 interval，之后到点刷新；`stop` 置位即退出。"""
         while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=self.interval_seconds)
+                break
+            except asyncio.TimeoutError:
+                pass  # interval 到点，跑一轮
             try:
                 await self.run_once()
             except Exception as exc:  # noqa: BLE001 — 整轮异常不该让循环挂掉
                 log_event(logger, "catalog_refresh_round_failed", message=str(exc))
-            try:
-                await asyncio.wait_for(stop.wait(), timeout=self.interval_seconds)
-            except asyncio.TimeoutError:
-                pass  # interval 到点，跑下一轮
 
     async def run_once(self) -> dict:
         """跑一轮刷新。非 leader 直接跳过；leader 则逐包强制增量。返回可观测统计。"""
@@ -104,3 +107,22 @@ class CatalogRefreshScheduler:
             except Exception:
                 conn.execute("ROLLBACK")
                 raise
+
+
+def main() -> None:
+    configure_logging()
+    settings = get_settings()
+    if not settings.catalog_refresh_enabled:
+        log_event(logger, "catalog_refresh_disabled")
+        return
+    settings.ensure_directories()
+    scheduler = CatalogRefreshScheduler(
+        build_catalog(settings),
+        interval_hours=settings.catalog_refresh_interval_hours,
+        lease_seconds=settings.catalog_scheduler_lease_seconds,
+    )
+    asyncio.run(scheduler.run_forever(asyncio.Event()))
+
+
+if __name__ == "__main__":
+    main()

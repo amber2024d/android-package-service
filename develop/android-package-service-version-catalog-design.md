@@ -127,7 +127,7 @@ collection_state(                           -- 驱动「全量 vs 增量」
 
 增量可行的前提：APKPure/APKMirror/Aptoide 都**最新在前**，翻到已知版本即停，代价小。
 
-> 本函数的**增量分支主要由 §G 的定时任务驱动**（每 5h 对已跟踪包跑一遍），读路径因此基本只读库；
+> 本函数的**增量分支主要由 §G 的定时任务驱动**（每 12h 对已跟踪包跑一遍），读路径因此基本只读库；
 > 按需调用退为「从没采过」的首次全量 + 定时任务停摆时的 TTL 兜底。
 
 ### E. name↔code 补全与账本（编排器集中做）
@@ -175,29 +175,30 @@ collection_state(                           -- 驱动「全量 vs 增量」
 
 ### G. 后台定时刷新（保对外接口响应）
 
-> **落地（阶段 14）**：`app/catalog/scheduler.py` 的 `CatalogRefreshScheduler`，FastAPI lifespan 进程内起、
-> `scheduler_lock` 选主（承载选型=进程内 + leader 锁，见部署文档）。每 `CATALOG_REFRESH_INTERVAL_HOURS`（默认 5）
+> **落地（阶段 14）**：`app/catalog/scheduler.py` 的 `CatalogRefreshScheduler`，由独立
+> `android-package-catalog-scheduler` 容器运行 `python -m app.catalog.scheduler`（见部署文档）。每
+> `CATALOG_REFRESH_INTERVAL_HOURS`（默认 12）
 > 对已跟踪包逐包串行 `ensure_collected(force=True)`（旁路 TTL，主刷新源）；单包失败隔离、整轮 ok/failed 可观测；
-> leader 租约带超时可重抢。`/versions` 读路径不触发刷新，已跟踪包稳定读库。
+> `scheduler_lock` 仅作为误启多实例时的防重保护。`/versions` 读路径不触发刷新，已跟踪包稳定读库。
 
 决策② 的「同步收集」只在**首次**接触某包时发生；但若让 `/versions` 之后每次按 TTL 在请求里触发增量刷新，
 仍可能拖慢响应。引入**全局定时刷新任务**，把「保持新鲜」整体挪到后台，读路径只读库。
 
-- **周期**：默认**每 5h**（可配 `CATALOG_REFRESH_INTERVAL_HOURS=5`），开关 `CATALOG_REFRESH_ENABLED`。
+- **周期**：默认**每 12h**（可配 `CATALOG_REFRESH_INTERVAL_HOURS=12`），开关 `CATALOG_REFRESH_ENABLED`。
 - **刷新集**：`collection_state` 里**所有已采过的包**（= 服务真正用过的包）。不扫无关包、不做发现。
 - **动作**：对每个包跑 §D 的**增量**采集（各源最新优先、stop-on-known，只补新增），更新
   `versions`/`version_sources`/`source_cursors`/`last_refresh_at`；账本只增不改。
 - **读路径变化**：`/versions` 对已跟踪包**直接读库返回**、不触发刷新（§B）；只有从没采过的包才首次同步收集，
   之后自动进入本任务的刷新集。`/download` 指定版本**不阻塞收集**——先入队给下载 worker，并后台异步收集（§B 决策② / §H）；
   无论哪条触发的收集，同一包都**复用同一个收集任务**（§H 单飞）。
-- **单实例保证**：gunicorn 多 worker 下任务必须**只有一个 runner**——用 SQLite 一行 `scheduler_lock` +
-  `BEGIN IMMEDIATE` 选主（leader），或独立 scheduler 容器/进程。避免每个 worker 各跑一份。
+- **单实例保证**：任务必须**只有一个 runner**。当前落地为独立 scheduler 容器/进程；SQLite 一行
+  `scheduler_lock` + `BEGIN IMMEDIATE` 作为误启多实例时的防重保护。避免每个 Web worker 各跑一份。
 - **限流与隔离**：刷新集**逐包串行或小并发**（避免同时多包过 Cloudflare/触发封号），单包失败只记日志不阻断其余；
   整轮耗时、成功/失败数可观测。包多时可分片到多轮、错峰。
 - **与按需 TTL 的关系**：定时任务是**主刷新源**，按自己周期跑（不受按需 TTL 门限制）；§D 的按需 TTL 降级为
   **兜底**（定时任务停摆时，读路径仍可按 TTL 自救刷新一次）。
 
-> 这是纯**服务内**的后台任务（FastAPI 启动起一个调度器 / 或独立 worker 容器），不是外部 cron，也与
+> 这是纯**服务内**的后台任务（独立 scheduler 容器），不是外部 cron，也与
 > Claude Code 的定时 agent 无关。落地时在 [部署设计](android-package-service-deployment.md) 补调度器的承载方式。
 
 > **落地（阶段 11）**：§F 的「采集器（枚举→目录）」列已实现 APKPure / Aptoide 两源（`app/catalog/collectors/`）。
@@ -550,10 +551,11 @@ known-only、「没有任何源能给 code 或文件」的版本段。且每个�
 ## 12. 开放问题
 
 > v2 已定的不再列：账本/版本库存储形态（→ **SQLite 单库**，决策③）；catalog 刷新模型（→ 定时刷新为主 +
-> 按需兜底，v2 §D/§G）；全局后台刷新（→ **每 5h 定时任务**，v2 §G）；APKMirror 是否纳入（→ **纳入**，§11.2）。
+> 按需兜底，v2 §D/§G）；全局后台刷新（→ **每 12h 定时任务**，v2 §G）；APKMirror 是否纳入（→ **纳入**，§11.2）。
 
 - 并发写 SQLite 的粒度：复用下载层 per-key 锁，还是库级 `BEGIN IMMEDIATE` / WAL？（单节点优先 WAL + per-package 锁）
-- 定时刷新的承载：FastAPI 进程内调度器（需 leader 选主）vs 独立 scheduler 容器？刷新集很大时如何分片/错峰？
+- ~~定时刷新的承载：FastAPI 进程内调度器 vs 独立 scheduler 容器~~（**已决策**：独立
+  `android-package-catalog-scheduler` 容器；`scheduler_lock` 仅防误启多实例。刷新集很大时再做分片/错峰。）
 - ~~AppMagic 的 cookie/会话怎么托管最省心~~（**已实测解答**：接口公开匿名可取，无需 cookie/登录；只在被 Cloudflare 拦时用 Playwright 兜底，cookie 降为可选覆盖。见 §7）。
 - proto 是否纳入采集器（先抓样本确认 code 字段与覆盖）。
 - 一对多 vc 下，Google 下载选号策略（最高？匹配 walleye/arm64？）。
@@ -573,7 +575,7 @@ known-only、「没有任何源能给 code 或文件」的版本段。且每个�
   worker 全链 fallback 下不到 → job failed；最新版走快路径不触发收集。
 - **（v2）单飞去重（§H）**：同 request_key 并发只排一个 active job；name/code 别名归一到同一把下载锁；
   同包并发触发只跑一个收集任务（进程内 + 跨 worker 租约）；收集失败不影响下载响应。
-- **（v2）定时刷新**：每 5h 对已跟踪包跑增量；`/versions` 读路径不触发刷新（已跟踪包直接读库）；多 worker 下只有一个 runner（leader 锁）；单包失败不阻断整轮。
+- **（v2）定时刷新**：每 12h 对已跟踪包跑增量；`/versions` 读路径不触发刷新（已跟踪包直接读库）；独立 scheduler 容器承载；单包失败不阻断整轮。
 
 ## 14. 实测验证：多源 join 覆盖率（com.vitastudio.mahjong）
 

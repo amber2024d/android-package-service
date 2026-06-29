@@ -28,7 +28,7 @@
 | 11 | [phase-11-catalog-collectors](phase-11-catalog-collectors/README.md) | 源采集器 + 动态刷新（全量/增量）+ 收集单飞 |
 | 12 | [phase-12-download-orchestrator](phase-12-download-orchestrator/README.md) | 下载编排器 + provider 纯下载化 + 下载单飞归一 |
 | 13 | [phase-13-catalog-api](phase-13-catalog-api/README.md) | 对外 /versions(downloadable) + /download(入队下载 + 后台补目录) |
-| 14 | [phase-14-catalog-scheduler](phase-14-catalog-scheduler/README.md) | 后台定时刷新（5h + leader 选主） |
+| 14 | [phase-14-catalog-scheduler](phase-14-catalog-scheduler/README.md) | 后台定时刷新（12h + 独立 scheduler） |
 
 **二期（扩源、归档、监控；各自独立、按价值排）**：
 

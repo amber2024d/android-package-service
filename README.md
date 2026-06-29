@@ -58,7 +58,8 @@ PROVIDER_APKPURE_WEB_ENABLED=true
 PROVIDER_APKMIRROR_ENABLED=false   # 深历史源（二期），按需开
 ```
 
-版本目录定时刷新 `CATALOG_REFRESH_ENABLED` 默认开启，用于后台维护已跟踪包的新鲜度；主动归档
+版本目录定时刷新由 `android-package-catalog-scheduler` 容器承载，`CATALOG_REFRESH_ENABLED` 默认开启，
+用于后台维护已跟踪包的新鲜度；主动归档
 `ARCHIVE_ENABLED` 和 AppMagic known 监控源 `APPMAGIC_ENABLED` 默认关闭。
 
 大包下载可按网络情况调大：

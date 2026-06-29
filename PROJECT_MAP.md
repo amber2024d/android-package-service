@@ -35,14 +35,15 @@
 - `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 与 `/files`（`plan()`）的入口，用 `ledger`/`versions`
   补全 name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。指定版本时**抓取前先探已有产物**
   （`downloader.existing`，按 code/name 两种 version_key 各探一次），命中即复用、跳过整段 provider 抓取与重下。provider 仍各自按需自解析下载键。
-- `app/catalog/scheduler.py`（阶段 14）：`CatalogRefreshScheduler`——FastAPI lifespan 起的进程内定时刷新，
-  `scheduler_lock` 选主（多 worker 只一个跑、租约超时重抢），每 5h 对已跟踪包逐包强制增量、单包失败隔离。
+- `app/catalog/scheduler.py`（阶段 14）：`CatalogRefreshScheduler`——独立刷新进程入口
+  （`python -m app.catalog.scheduler`），每 12h 对已跟踪包逐包强制增量、单包失败隔离；`scheduler_lock`
+  仅防止误启多实例时重复刷新。
 - `app/catalog/archiver.py`（阶段 16）：`CatalogArchiver`——catalog 增量发现新版本时（`on_new_versions` 钩子）经编排器
   下载入 NAS 档案馆（默认关、限流、有限重试、幂等、失败隔离）；只面向未来留存，首次全量不回溯。
 - `app/catalog/collectors/appmagic.py`（阶段 17）：AppMagic known 时间线监控源
   （`downloadable=False`，入库 `downloadable=0`、不进对外 `/versions`，只供监控/缺口对账 `list_known_only`）。
   取数实测公开匿名可取：默认匿名 httpx，被 Cloudflare 拦则回退 Playwright（走 `upstream_proxy`）；无需 cookie/登录。默认关。
-- `app/catalog/runtime.py`：`build_catalog`/`build_collectors`——按 settings + provider 开关装配带采集器的 `VersionCatalog`，路由与 lifespan 复用。
+- `app/catalog/runtime.py`：`build_catalog`/`build_collectors`——按 settings + provider 开关装配带采集器的 `VersionCatalog`，路由与独立 scheduler 复用。
 - `app/utils/`：文件名、hash、ZIP 小工具。
 
 ## 运行配置

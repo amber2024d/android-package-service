@@ -50,10 +50,10 @@ class Settings(BaseSettings):
     catalog_collect_ttl_hours: float = 6.0
     catalog_collection_lease_seconds: int = 600
 
-    # 后台定时刷新（阶段 14，§G）：进程内调度器（FastAPI lifespan 起），多 worker 用 scheduler_lock 选主。
-    # 默认每 5h 对已跟踪包跑增量（force 旁路 TTL，定时任务是主刷新源）。leader 租约带超时防崩溃占用。
+    # 后台定时刷新（阶段 14，§G）：独立 scheduler 容器运行；scheduler_lock 仅防误启多实例。
+    # 默认每 12h 对已跟踪包跑增量（force 旁路 TTL，定时任务是主刷新源）。leader 租约带超时防崩溃占用。
     catalog_refresh_enabled: bool = True
-    catalog_refresh_interval_hours: float = 5.0
+    catalog_refresh_interval_hours: float = 12.0
     catalog_scheduler_lease_seconds: int = 900
 
     # 主动归档（阶段 16，§11.1）：增量发现新版本即下载入 NAS 档案馆（默认关，开后会自动触发下载/占带宽）。

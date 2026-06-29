@@ -20,6 +20,9 @@ services:
       DOWNLOAD_JOB_LEASE_SECONDS: ${DOWNLOAD_JOB_LEASE_SECONDS:-3600}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-6}
       GUNICORN_TIMEOUT_SECONDS: ${GUNICORN_TIMEOUT_SECONDS:-21600}
+      CATALOG_REFRESH_ENABLED: "false"
+      CATALOG_REFRESH_INTERVAL_HOURS: ${CATALOG_REFRESH_INTERVAL_HOURS:-12}
+      CATALOG_SCHEDULER_LEASE_SECONDS: ${CATALOG_SCHEDULER_LEASE_SECONDS:-900}
       PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
       PROVIDER_FAKE_FAILING_ENABLED: ${PROVIDER_FAKE_FAILING_ENABLED:-true}
       PROVIDER_APKPURE_SIGNED_ENABLED: ${PROVIDER_APKPURE_SIGNED_ENABLED:-false}
@@ -65,6 +68,17 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.download.worker"]
     environment: *app_environment
+    volumes: *app_volumes
+    shm_size: "1gb"
+
+  android-package-catalog-scheduler:
+    build: .
+    container_name: android-package-catalog-scheduler
+    restart: unless-stopped
+    command: ["python", "-m", "app.catalog.scheduler"]
+    environment:
+      <<: *app_environment
+      CATALOG_REFRESH_ENABLED: ${CATALOG_REFRESH_ENABLED:-true}
     volumes: *app_volumes
     shm_size: "1gb"
 

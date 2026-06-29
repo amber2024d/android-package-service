@@ -18,10 +18,11 @@ docker compose up -d
 - Playwright Chromium 及系统依赖
 - APK/XAPK 下载和打包逻辑
 
-当前 Compose 拆成两个进程角色：
+当前 Compose 拆成三个进程角色：
 
 - `android-package-service`：Web API，负责查询、artifact 快路径、下载任务入队和已完成文件响应。
 - `android-package-download-worker`：独立下载 worker，轮询 `download_jobs`，执行上游下载、解包/打包和校验。
+- `android-package-catalog-scheduler`：独立版本目录刷新进程，按周期刷新已跟踪包。
 
 ## docker-compose.yml
 
@@ -50,6 +51,9 @@ services:
       DOWNLOAD_JOB_LEASE_SECONDS: ${DOWNLOAD_JOB_LEASE_SECONDS:-3600}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-6}
       GUNICORN_TIMEOUT_SECONDS: ${GUNICORN_TIMEOUT_SECONDS:-21600}
+      CATALOG_REFRESH_ENABLED: "false"
+      CATALOG_REFRESH_INTERVAL_HOURS: ${CATALOG_REFRESH_INTERVAL_HOURS:-12}
+      CATALOG_SCHEDULER_LEASE_SECONDS: ${CATALOG_SCHEDULER_LEASE_SECONDS:-900}
       PROVIDER_FAKE_ENABLED: ${PROVIDER_FAKE_ENABLED:-true}
       PROVIDER_FAKE_FAILING_ENABLED: ${PROVIDER_FAKE_FAILING_ENABLED:-true}
       PROVIDER_APKPURE_SIGNED_ENABLED: ${PROVIDER_APKPURE_SIGNED_ENABLED:-false}
@@ -97,6 +101,17 @@ services:
     restart: unless-stopped
     command: ["python", "-m", "app.download.worker"]
     environment: *app_environment
+    volumes: *app_volumes
+    shm_size: "1gb"
+
+  android-package-catalog-scheduler:
+    build: .
+    container_name: android-package-catalog-scheduler
+    restart: unless-stopped
+    command: ["python", "-m", "app.catalog.scheduler"]
+    environment:
+      <<: *app_environment
+      CATALOG_REFRESH_ENABLED: ${CATALOG_REFRESH_ENABLED:-true}
     volumes: *app_volumes
     shm_size: "1gb"
 
@@ -313,17 +328,18 @@ NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘�
 
 ## 后台定时刷新调度器（阶段 14）
 
-版本目录的「保持新鲜」由进程内定时调度器承载（**承载选型：FastAPI 进程内 + leader 选主**，不引入独立容器/外部 cron）：
+版本目录的「保持新鲜」由独立 `android-package-catalog-scheduler` 容器承载（**承载选型：独立 scheduler 进程**）：
 
-- FastAPI `lifespan` 在每个 worker 启动一个 `CatalogRefreshScheduler.run_forever`；多 worker 下用
-  `scheduler_lock`（SQLite 单行 + `BEGIN IMMEDIATE`）选主，**只有一个 worker 真正跑**，其余每轮抢锁失败即跳过。
-- leader 租约带超时（`CATALOG_SCHEDULER_LEASE_SECONDS`，默认 900s）：leader 崩溃后超时可被他人重抢，不会永久占用。
-- 每 `CATALOG_REFRESH_INTERVAL_HOURS`（默认 5）对 `collection_state` 里**已跟踪包**逐包串行跑强制增量
+- Web API 的 gunicorn worker 不启动 `CatalogRefreshScheduler`，避免每个 worker 各自睡眠、租约过期后轮流抢跑刷新。
+- `android-package-catalog-scheduler` 运行 `python -m app.catalog.scheduler`，正常部署只保留一个实例。
+- `scheduler_lock`（SQLite 单行 + `BEGIN IMMEDIATE`）仍保留为误启多实例时的防重保护；leader 租约带超时
+  （`CATALOG_SCHEDULER_LEASE_SECONDS`，默认 900s），实例崩溃后可被重抢，不会永久占用。
+- 每 `CATALOG_REFRESH_INTERVAL_HOURS`（默认 12）对 `collection_state` 里**已跟踪包**逐包串行跑强制增量
   （`force` 旁路 TTL，定时任务是主刷新源；按需 TTL 降级为兜底）。单包失败只记日志（`catalog_refresh_package_failed`）
   不阻断整轮；整轮记 `catalog_refresh_round_ok`（ok/failed 计数）。
-- 关停：`CATALOG_REFRESH_ENABLED=false` 不启动调度器（如想用独立 scheduler 容器/外部触发时）。
-- 选型理由：刷新集就是「服务用过的包」，量级可控、逐包串行即可；进程内 + leader 锁零额外运维，
-  比独立 scheduler 容器简单。包很多需要分片/错峰时再考虑拆独立 scheduler。
+- 关停：`CATALOG_REFRESH_ENABLED=false` 时 scheduler 容器启动后直接退出；Web API 和下载 worker 不受影响。
+- 选型理由：刷新集就是「服务用过的包」，量级可控、逐包串行即可；拆成独立容器后，Web 并发数只影响 API，
+  不再影响刷新频率。
 
 ## 下载 worker
 

@@ -18,6 +18,15 @@ services:
     volumes:
       - ./artifacts:/mnt/nas/apks
 
+  android-package-catalog-scheduler:
+    environment:
+      APP_ENV: development
+      PUBLIC_BASE_URL: http://localhost:11010
+      PROVIDER_FAKE_ENABLED: "true"
+      PROVIDER_FAKE_FAILING_ENABLED: "true"
+    volumes:
+      - ./artifacts:/mnt/nas/apks
+
 volumes:
   # 覆盖 base 的 nas_apks（CIFS）为本地驱动，避免本地测试解析 NAS 变量。
   nas_apks:

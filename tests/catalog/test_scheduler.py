@@ -1,12 +1,15 @@
 import asyncio
+import logging
 import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
+from app.catalog import scheduler as scheduler_module
 from app.catalog.catalog import VersionCatalog
 from app.catalog.collectors.base import Collector, VersionRecord
 from app.catalog.scheduler import CatalogRefreshScheduler
 from app.catalog.store import CatalogStore
+from app.core.config import get_settings
 
 START = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -135,7 +138,7 @@ def test_force_refresh_bypasses_ttl(tmp_path):
     assert collector.calls == 1
 
 
-def test_run_forever_stops_on_event(tmp_path):
+def test_run_forever_does_not_refresh_before_first_interval(tmp_path):
     store = _store(tmp_path, tracked=["com.a"])
     scheduler = CatalogRefreshScheduler(FakeCatalog(store), interval_hours=999, now_fn=Clock(START))
     calls = {"n": 0}
@@ -145,11 +148,47 @@ def test_run_forever_stops_on_event(tmp_path):
 
         async def counting():
             calls["n"] += 1
-            stop.set()  # 跑完第一轮就请求停
+            return {"leader": True, "packages": 0, "ok": 0, "failed": 0}
+
+        scheduler.run_once = counting
+        stop.set()
+        await asyncio.wait_for(scheduler.run_forever(stop), timeout=2)
+
+    asyncio.run(scenario())
+    assert calls["n"] == 0  # 重启/启动后不会立即刷新
+
+
+def test_run_forever_refreshes_after_interval(tmp_path):
+    store = _store(tmp_path, tracked=["com.a"])
+    scheduler = CatalogRefreshScheduler(FakeCatalog(store), interval_hours=0.000001, now_fn=Clock(START))
+    calls = {"n": 0}
+
+    async def scenario():
+        stop = asyncio.Event()
+
+        async def counting():
+            calls["n"] += 1
+            stop.set()
             return {"leader": True, "packages": 0, "ok": 0, "failed": 0}
 
         scheduler.run_once = counting
         await asyncio.wait_for(scheduler.run_forever(stop), timeout=2)
 
     asyncio.run(scenario())
-    assert calls["n"] == 1  # 触发一轮后被 stop 打断退出，不被 999h interval 卡住
+    assert calls["n"] == 1
+
+
+def test_scheduler_main_returns_when_refresh_disabled(tmp_path, caplog):
+    get_settings.cache_clear()
+    settings = get_settings()
+    settings.data_dir = tmp_path / "data"
+    settings.temp_dir = tmp_path / "tmp"
+    settings.nas_mount_path = tmp_path / "nas"
+    settings.catalog_refresh_enabled = False
+    try:
+        with caplog.at_level(logging.INFO):
+            scheduler_module.main()
+    finally:
+        get_settings.cache_clear()
+
+    assert "catalog_refresh_disabled" in caplog.text

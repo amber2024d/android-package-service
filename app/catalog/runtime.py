@@ -1,6 +1,6 @@
 """版本目录运行期装配：把 settings 拼成带采集器的 VersionCatalog。
 
-供 API 路由（`get_catalog` 依赖）与定时刷新调度器（FastAPI lifespan）复用，避免两处重复装配。
+供 API 路由（`get_catalog` 依赖）与独立定时刷新调度器复用，避免两处重复装配。
 """
 
 from app.catalog.archiver import CatalogArchiver
