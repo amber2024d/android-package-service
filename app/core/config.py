@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     download_async_enabled: bool = True
     download_job_poll_seconds: float = 2.0
     download_job_lease_seconds: int = 3600
+    download_worker_concurrency: int = Field(default=4, ge=1)
 
     provider_fake_enabled: bool = True
     provider_fake_failing_enabled: bool = True

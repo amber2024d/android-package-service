@@ -1,3 +1,4 @@
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 from app.catalog.store import CatalogStore
@@ -41,3 +42,26 @@ def test_expired_running_job_can_be_reclaimed(tmp_path):
     reclaimed = jobs.claim_next("worker-b")
     assert reclaimed.id == job.id
     assert reclaimed.status == RUNNING
+
+
+def test_concurrent_claims_take_distinct_jobs(tmp_path):
+    store = CatalogStore(tmp_path / "catalog.sqlite")
+    jobs = DownloadJobStore(store, lease_seconds=60)
+    first = jobs.enqueue(AndroidPackageRequest(package_name="p1"), "r1")
+    second = jobs.enqueue(AndroidPackageRequest(package_name="p2"), "r2")
+
+    claimed_a = jobs.claim_next("worker:1")
+    claimed_b = jobs.claim_next("worker:2")
+
+    assert claimed_a is not None
+    assert claimed_b is not None
+    assert {claimed_a.id, claimed_b.id} == {first.id, second.id}
+    with closing(store.connect()) as conn:
+        rows = {
+            row[0]: row[1]
+            for row in conn.execute(
+                "SELECT id, worker FROM download_jobs WHERE id IN (?, ?)",
+                (first.id, second.id),
+            )
+        }
+    assert set(rows.values()) == {"worker:1", "worker:2"}

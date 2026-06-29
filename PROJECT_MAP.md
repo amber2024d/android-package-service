@@ -18,7 +18,8 @@
   也被目录的 APKPure 采集器复用；阶段 12 收口后，provider **下载路径**默认直命中 `/download/{name}`，只在
   「按 code 且目录冷」时才用 `list_versions` 窄兜底枚举（`get_package_info`/`/apps` 仍用它列版本）。
 - `app/download/`：artifact 复用、`.part` 落盘、校验、XAPK 打包；`jobs.py` 是 SQLite 下载队列，`worker.py`
-  是独立下载进程入口（`python -m app.download.worker`）。`PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
+  是独立下载进程入口（`python -m app.download.worker`），按 `DOWNLOAD_WORKER_CONCURRENCY` 启动并发 slot（默认 4）。
+  `PackageFile.proxy` 非空时走代理并跳过本地 IP 的 SSRF 校验。
   artifact 复用（`ArtifactStore.existing`）只做轻校验——存在 + 大小（stat）+ manifest 版本（读 zip 中央目录），**不重算整文件哈希**
   （哈希写入时已算，大包每次复用从慢 NAS 重读 150MB 会拖到分钟级）。
   下载成功后挂 `_backfill_ledger` 旁路钩子，解析产物 manifest 回填版本目录账本（失败隔离，不影响下载）。
@@ -53,6 +54,7 @@
 - Docker 构建忽略：`.dockerignore`，只把镜像构建需要的源码和项目元数据放进 context。
 - 一键本地测试 Docker：`scripts/dev-compose-up.sh`。
 - 部署 smoke：`scripts/smoke.sh`。
+- `DOWNLOAD_WORKER_CONCURRENCY`：单个下载 worker 容器内并发执行的下载任务数，默认 4。
 - `UPSTREAM_PROXY`：apkpure 系 / google-play / apkmirror 的上游代理（HTTP/HTTPS，含鉴权，不支持 SOCKS5）；
   Cloudflare 拦 CDN/Aurora、本机出口受限、或开发机 Clash fake-IP 误伤 SSRF 校验时配置（空串=直连，Settings 已归一为
   `None`），详见 `develop/android-package-service-providers.md`。

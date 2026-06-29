@@ -137,8 +137,9 @@ volumes:
 - `shm_size` 是给 Playwright Chromium 留空间，避免网页兜底路径在容器里不稳定。
 - **版本目录库放宿主机本地目录 `./data`、不放 NAS（CIFS）卷**：SQLite WAL 依赖本地文件锁/共享内存，跑在
   CIFS 上会损坏；NAS 卷只承载只读复用的大文件 artifact。
-- `WEB_CONCURRENCY` 只控制 Web API 的 gunicorn worker 数；下载并发由独立 worker 服务数量和内部下载链路决定。
-  默认先跑 1 个下载 worker，避免大包并发把上游带宽、NAS 和临时盘打满；需要更高下载吞吐时再横向扩 worker。
+- `WEB_CONCURRENCY` 只控制 Web API 的 gunicorn worker 数；下载任务由独立 download worker 容器承载。
+- `DOWNLOAD_WORKER_CONCURRENCY` 控制单个下载 worker 容器内并发执行的下载任务数，默认 4；大包较多或上游/NAS
+  压力偏高时可调低，需要更高吞吐时可调高或再横向扩 worker 容器。
 
 ## Dockerfile
 
@@ -177,7 +178,7 @@ CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.
 - Playwright 镜像已经带 Chromium 和系统依赖。
 - 镜像额外安装 `wget`，APKPure Web 下载被 HTTP 客户端拦截时用浏览器头和 Referer 走轻量兜底。
 - `GUNICORN_TIMEOUT_SECONDS=21600` 对 5 GiB 级别 APK/XAPK 下载更宽松。
-- `WEB_CONCURRENCY` 默认 6，可按机器资源调低或调高；worker 数不宜过高，避免同一服务器同时拉太多大包。
+- `WEB_CONCURRENCY` 默认 6，可按机器资源调低或调高；它只影响 Web API，不影响下载队列消费并发。
 - `.dockerignore` 使用白名单，只把 `app/`、`pyproject.toml` 等构建必需文件放入 context，避免 `.env`、`.venv`、`data/`、`tmp/`、`artifacts/` 被打包。
 
 ## .env 配置
@@ -196,6 +197,7 @@ DOWNLOAD_CONNECT_TIMEOUT_SECONDS=60
 DOWNLOAD_ASYNC_ENABLED=true
 DOWNLOAD_JOB_POLL_SECONDS=2
 DOWNLOAD_JOB_LEASE_SECONDS=3600
+DOWNLOAD_WORKER_CONCURRENCY=4
 WEB_CONCURRENCY=6
 GUNICORN_TIMEOUT_SECONDS=21600
 
@@ -346,7 +348,8 @@ NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘�
 下载任务由 `android-package-download-worker` 容器承载：
 
 - `/download` 未命中 artifact 时，Web API 只写 `download_jobs` 并返回 `202 {jobId,statusUrl,fileUrl}`。
-- worker 每 `DOWNLOAD_JOB_POLL_SECONDS` 秒认领 queued 任务，执行原有 `DownloadOrchestrator.download`。
+- 单个 worker 容器默认并发 4 个 slot（`DOWNLOAD_WORKER_CONCURRENCY=4`），每个 slot 空闲时每
+  `DOWNLOAD_JOB_POLL_SECONDS` 秒认领 queued 任务，执行原有 `DownloadOrchestrator.download`。
 - 任务租约由 `DOWNLOAD_JOB_LEASE_SECONDS` 控制；worker 崩溃后租约过期，其他 worker 可重抢 running 任务。
 - 相同请求的 queued/running 任务用 `request_key` 去重；重复调用 `/download` 会拿到同一个 `jobId`。
 - `DOWNLOAD_ASYNC_ENABLED=false` 可退回旧的同步下载路径，仅用于本地调试或排障，不建议线上开启。

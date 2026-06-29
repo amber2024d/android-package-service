@@ -22,3 +22,13 @@ def test_blank_upstream_proxy_normalizes_to_none(tmp_path, blank):
 def test_real_upstream_proxy_is_preserved(tmp_path):
     settings = _settings(tmp_path, upstream_proxy="http://user:pass@host:3128")
     assert settings.upstream_proxy == "http://user:pass@host:3128"
+
+
+def test_download_worker_concurrency_defaults_to_four(tmp_path):
+    settings = _settings(tmp_path)
+    assert settings.download_worker_concurrency == 4
+
+
+def test_download_worker_concurrency_must_be_positive(tmp_path):
+    with pytest.raises(ValueError):
+        _settings(tmp_path, download_worker_concurrency=0)

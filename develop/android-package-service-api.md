@@ -115,7 +115,8 @@ provider    可选，默认 auto
 - Web 请求只做 artifact 复用探测；命中已落产物时直接返回文件流或 302。
 - 未命中时创建 `download_jobs` 任务并返回 `202`，真正下载、解压、压缩、校验由独立下载 worker 执行，不占 Web worker。
 - **指定版本**时仍会后台异步补目录（fire-and-forget，同包收集单飞去重），不阻塞入队响应。
-- 下载 worker 内部继续用原下载编排器，「按名」「按号」指向同一版本的任务归一到同一把下载锁，只下一次、复用 artifact。
+- 下载 worker 默认并发 4 个任务（`DOWNLOAD_WORKER_CONCURRENCY=4`），每个任务内部继续用原下载编排器；
+  「按名」「按号」指向同一版本的任务归一到同一把下载锁，只下一次、复用 artifact。
 - 配了 `NAS_PUBLIC_BASE_URL`（NAS 自带 nginx 文件服务前缀）时，下载就绪后 **302 重定向到 NAS 直链**，
   让客户端从 NAS 直拉，省掉「容器经 CIFS 读大包再转发」的双跳、解放 worker；留空则由本服务流式返回（默认）。
 
