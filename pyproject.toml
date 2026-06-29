@@ -15,7 +15,8 @@ dependencies = [
   "pydantic-settings>=2.7",
   "python-multipart>=0.0.20",
   "gpapi>=0.4.4",
-  "playwright>=1.49",
+  # Must match the Playwright base image tag in Dockerfile.
+  "playwright==1.60.0",
 ]
 
 [project.optional-dependencies]

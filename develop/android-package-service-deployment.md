@@ -176,6 +176,8 @@ CMD ["sh", "-c", "gunicorn app.main:app -k uvicorn.workers.UvicornWorker -b 0.0.
 说明：
 
 - Playwright 镜像已经带 Chromium 和系统依赖。
+- `pyproject.toml` 中的 `playwright` Python 包版本必须与基础镜像 tag 保持一致；升级 Playwright 时要同时改
+  `mcr.microsoft.com/playwright/python:vX.Y.Z-noble` 和 `playwright==X.Y.Z`，否则容器内会找不到浏览器二进制。
 - 镜像额外安装 `wget`，APKPure Web 下载被 HTTP 客户端拦截时用浏览器头和 Referer 走轻量兜底。
 - `GUNICORN_TIMEOUT_SECONDS=21600` 对 5 GiB 级别 APK/XAPK 下载更宽松。
 - `WEB_CONCURRENCY` 默认 6，可按机器资源调低或调高；它只影响 Web API，不影响下载队列消费并发。
