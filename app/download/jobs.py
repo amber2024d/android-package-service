@@ -87,15 +87,19 @@ class DownloadJobStore:
         now_dt = datetime.now(UTC)
         now = now_dt.isoformat()
         lease_expires = (now_dt + self.lease).isoformat()
+        stale_before = (now_dt - self.lease).isoformat()
         with closing(self.store.connect()) as conn:
             conn.row_factory = sqlite3.Row
             conn.execute("BEGIN IMMEDIATE")
             try:
                 row = conn.execute(
                     "SELECT * FROM download_jobs "
-                    "WHERE status = ? OR (status = ? AND lease_expires IS NOT NULL AND lease_expires < ?) "
+                    "WHERE status = ? OR (status = ? AND ("
+                    "  (lease_expires IS NOT NULL AND lease_expires < ?) "
+                    "  OR COALESCE(updated_at, started_at, created_at) < ?"
+                    ")) "
                     "ORDER BY created_at LIMIT 1",
-                    (QUEUED, RUNNING, now),
+                    (QUEUED, RUNNING, now, stale_before),
                 ).fetchone()
                 if row is None:
                     conn.execute("COMMIT")
@@ -112,30 +116,66 @@ class DownloadJobStore:
                 conn.execute("ROLLBACK")
                 raise
 
-    def mark_succeeded(self, job_id: str, artifact: Path, provider: str | None = None) -> None:
+    def renew_lease(self, job_id: str, worker: str) -> bool:
+        now_dt = datetime.now(UTC)
+        now = now_dt.isoformat()
+        lease_expires = (now_dt + self.lease).isoformat()
+        with closing(self.store.connect()) as conn:
+            result = conn.execute(
+                "UPDATE download_jobs SET lease_expires = ?, updated_at = ? "
+                "WHERE id = ? AND status = ? AND worker = ?",
+                (lease_expires, now, job_id, RUNNING, worker),
+            )
+        return result.rowcount > 0
+
+    def mark_succeeded(
+        self,
+        job_id: str,
+        artifact: Path,
+        provider: str | None = None,
+        *,
+        worker: str | None = None,
+    ) -> bool:
         # provider = 本次下载实际命中的来源（编排器 fallback 后的最终源），直接落库，
         # 监控面板据此还原成功卡的「命中来源」，不再依赖 artifact_path 路径解析。
         now = self._now()
+        guard = " AND worker = ? AND status = ?" if worker is not None else ""
+        params = [SUCCEEDED, str(artifact), provider, now, now, job_id]
+        if worker is not None:
+            params.extend([worker, RUNNING])
         with closing(self.store.connect()) as conn:
-            conn.execute(
+            result = conn.execute(
                 "UPDATE download_jobs SET status = ?, artifact_path = ?, succeeded_provider = ?, error = NULL, "
-                "provider_errors = NULL, lease_expires = NULL, updated_at = ?, finished_at = ? WHERE id = ?",
-                (SUCCEEDED, str(artifact), provider, now, now, job_id),
+                f"provider_errors = NULL, lease_expires = NULL, updated_at = ?, finished_at = ? WHERE id = ?{guard}",
+                params,
             )
+        return result.rowcount > 0
 
-    def mark_failed(self, job_id: str, message: str, provider_errors: list[ProviderError] | None = None) -> None:
+    def mark_failed(
+        self,
+        job_id: str,
+        message: str,
+        provider_errors: list[ProviderError] | None = None,
+        *,
+        worker: str | None = None,
+    ) -> bool:
         now = self._now()
         encoded = (
             json.dumps([error.model_dump(mode="json") for error in provider_errors], ensure_ascii=False)
             if provider_errors
             else None
         )
+        guard = " AND worker = ? AND status = ?" if worker is not None else ""
+        params = [FAILED, message, encoded, now, now, job_id]
+        if worker is not None:
+            params.extend([worker, RUNNING])
         with closing(self.store.connect()) as conn:
-            conn.execute(
+            result = conn.execute(
                 "UPDATE download_jobs SET status = ?, error = ?, provider_errors = ?, lease_expires = NULL, "
-                "updated_at = ?, finished_at = ? WHERE id = ?",
-                (FAILED, message, encoded, now, now, job_id),
+                f"updated_at = ?, finished_at = ? WHERE id = ?{guard}",
+                params,
             )
+        return result.rowcount > 0
 
     @staticmethod
     def request_key(request: AndroidPackageRequest) -> str:

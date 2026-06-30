@@ -46,6 +46,44 @@ def test_expired_running_job_can_be_reclaimed(tmp_path):
     assert reclaimed.status == RUNNING
 
 
+def test_stale_running_job_can_be_reclaimed_even_if_old_lease_is_far_future(tmp_path):
+    store = CatalogStore(tmp_path / "catalog.sqlite")
+    jobs = DownloadJobStore(store, lease_seconds=300)
+    job = jobs.enqueue(AndroidPackageRequest(package_name="p"), "r1")
+    jobs.claim_next("worker-a")
+
+    stale = (datetime.now(UTC) - timedelta(seconds=301)).isoformat()
+    old_long_lease = (datetime.now(UTC) + timedelta(minutes=30)).isoformat()
+    with store.connect() as conn:
+        conn.execute(
+            "UPDATE download_jobs SET updated_at = ?, lease_expires = ? WHERE id = ?",
+            (stale, old_long_lease, job.id),
+        )
+
+    reclaimed = jobs.claim_next("worker-b")
+    assert reclaimed.id == job.id
+    with store.connect() as conn:
+        assert conn.execute("SELECT worker FROM download_jobs WHERE id = ?", (job.id,)).fetchone()[0] == "worker-b"
+
+
+def test_stale_worker_cannot_finish_reclaimed_job(tmp_path):
+    store = CatalogStore(tmp_path / "catalog.sqlite")
+    jobs = DownloadJobStore(store, lease_seconds=60)
+    job = jobs.enqueue(AndroidPackageRequest(package_name="p"), "r1")
+    jobs.claim_next("worker-a")
+
+    expired = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+    with store.connect() as conn:
+        conn.execute("UPDATE download_jobs SET lease_expires = ? WHERE id = ?", (expired, job.id))
+    jobs.claim_next("worker-b")
+
+    assert jobs.mark_succeeded(job.id, Path("/tmp/a.apk"), "fake", worker="worker-a") is False
+    stored = jobs.get(job.id)
+    assert stored.status == RUNNING
+    with store.connect() as conn:
+        assert conn.execute("SELECT worker FROM download_jobs WHERE id = ?", (job.id,)).fetchone()[0] == "worker-b"
+
+
 def test_mark_succeeded_records_hit_provider(tmp_path):
     jobs = DownloadJobStore(CatalogStore(tmp_path / "catalog.sqlite"))
     job = jobs.enqueue(AndroidPackageRequest(package_name="p"), "r1")

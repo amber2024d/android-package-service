@@ -243,7 +243,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "DOWNLOAD_CONNECT_TIMEOUT_SECONDS": {"default": "60", "description": "下载连接超时（秒）"},
                 "DOWNLOAD_ASYNC_ENABLED": {"default": "true", "description": "下载未命中缓存时是否入队交给独立 worker"},
                 "DOWNLOAD_JOB_POLL_SECONDS": {"default": "2", "description": "下载 worker 空闲轮询间隔（秒）"},
-                "DOWNLOAD_JOB_LEASE_SECONDS": {"default": "3600", "description": "下载任务运行租约（秒），worker 崩溃后超时可重抢"},
+                "DOWNLOAD_JOB_LEASE_SECONDS": {"default": "3600", "description": "下载任务运行租约（秒），worker 执行时续租，崩溃后超时可重抢"},
                 "DOWNLOAD_WORKER_CONCURRENCY": {"default": "4", "description": "单个下载 worker 容器内并发执行的下载任务数"},
                 "CATALOG_REFRESH_ENABLED": {"default": "true", "description": "版本目录后台定时刷新开关"},
                 "CATALOG_REFRESH_INTERVAL_HOURS": {"default": "12", "description": "定时刷新间隔（小时）"},

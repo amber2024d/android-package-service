@@ -67,8 +67,22 @@ class DownloadWorker:
             provider=job.request.preferred_provider,
         )
         try:
-            artifact, provider = await orchestrator.download(job.request, request_id=job.request_id)
-            self.jobs.mark_succeeded(job.id, artifact, provider)
+            heartbeat = asyncio.create_task(self._renew_until_done(job.id, worker_id))
+            try:
+                artifact, provider = await orchestrator.download(job.request, request_id=job.request_id)
+            finally:
+                heartbeat.cancel()
+                await asyncio.gather(heartbeat, return_exceptions=True)
+            if not self.jobs.mark_succeeded(job.id, artifact, provider, worker=worker_id):
+                log_event(
+                    logger,
+                    "download_job_stale_result_ignored",
+                    job_id=job.id,
+                    worker_id=worker_id,
+                    request_id=job.request_id,
+                    package_name=job.request.package_name,
+                )
+                return
             log_event(
                 logger,
                 "download_job_succeeded",
@@ -80,7 +94,16 @@ class DownloadWorker:
                 artifact_path=str(artifact),
             )
         except AggregateProviderError as exc:
-            self.jobs.mark_failed(job.id, str(exc), exc.provider_errors)
+            if not self.jobs.mark_failed(job.id, str(exc), exc.provider_errors, worker=worker_id):
+                log_event(
+                    logger,
+                    "download_job_stale_result_ignored",
+                    job_id=job.id,
+                    worker_id=worker_id,
+                    request_id=job.request_id,
+                    package_name=job.request.package_name,
+                )
+                return
             log_event(
                 logger,
                 "download_job_failed",
@@ -90,7 +113,16 @@ class DownloadWorker:
                 message=str(exc),
             )
         except Exception as exc:  # noqa: BLE001 — worker 不能因单个任务退出
-            self.jobs.mark_failed(job.id, str(exc))
+            if not self.jobs.mark_failed(job.id, str(exc), worker=worker_id):
+                log_event(
+                    logger,
+                    "download_job_stale_result_ignored",
+                    job_id=job.id,
+                    worker_id=worker_id,
+                    request_id=job.request_id,
+                    package_name=job.request.package_name,
+                )
+                return
             log_event(
                 logger,
                 "download_job_failed",
@@ -99,6 +131,13 @@ class DownloadWorker:
                 request_id=job.request_id,
                 message=str(exc),
             )
+
+    async def _renew_until_done(self, job_id: str, worker_id: str) -> None:
+        interval = max(1.0, self.settings.download_job_lease_seconds / 3)
+        while True:
+            await asyncio.sleep(interval)
+            if not self.jobs.renew_lease(job_id, worker_id):
+                return
 
 
 def main() -> None:

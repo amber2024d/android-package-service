@@ -352,7 +352,8 @@ NAS 挂载失败时建议启动失败，而不是降级写服务器本地磁盘�
 - `/download` 未命中 artifact 时，Web API 只写 `download_jobs` 并返回 `202 {jobId,statusUrl,fileUrl}`。
 - 单个 worker 容器默认并发 4 个 slot（`DOWNLOAD_WORKER_CONCURRENCY=4`），每个 slot 空闲时每
   `DOWNLOAD_JOB_POLL_SECONDS` 秒认领 queued 任务，执行原有 `DownloadOrchestrator.download`。
-- 任务租约由 `DOWNLOAD_JOB_LEASE_SECONDS` 控制；worker 崩溃后租约过期，其他 worker 可重抢 running 任务。
+- 任务租约由 `DOWNLOAD_JOB_LEASE_SECONDS` 控制；worker 正常执行时会续租，崩溃后租约过期，其他 worker 可重抢
+  running 任务。认领时也会按 `updated_at + 当前租约` 判定 stale，避免旧任务保留更长历史 `lease_expires` 后卡住。
 - 相同请求的 queued/running 任务用 `request_key` 去重；重复调用 `/download` 会拿到同一个 `jobId`。
 - `DOWNLOAD_ASYNC_ENABLED=false` 可退回旧的同步下载路径，仅用于本地调试或排障，不建议线上开启。
 

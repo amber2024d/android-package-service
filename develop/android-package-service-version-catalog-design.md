@@ -220,7 +220,8 @@ collection_state(                           -- 驱动「全量 vs 增量」
 **① 下载任务单飞（同一请求只排一个 active job）**。
 `DownloadJobStore` 用 `request_key(package, versionCode, versionName, provider)` 做 queued/running 唯一索引；
 重复调用 `/download` 会返回同一个 `jobId`，不会把 Web worker 堵在下载过程里。worker 崩溃时，`lease_expires`
-超时后 running job 可被其他 worker 重抢。
+超时后 running job 可被其他 worker 重抢；worker 正常执行时按租约周期续租，避免长下载被误抢。重启后旧任务若保留了更长的
+历史 `lease_expires`，认领逻辑也会用 `updated_at + 当前 DOWNLOAD_JOB_LEASE_SECONDS` 兜底判定 stale。
 
 **② 下载落盘单飞（同包同版本只落一份 artifact）**。
 worker 内部继续复用 `PackageDownloader` 的 `(provider, package, version_key)` 锁 + artifact 探测；
