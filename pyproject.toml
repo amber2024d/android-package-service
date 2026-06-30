@@ -29,7 +29,7 @@ dev = [
 include = ["app*"]
 
 [tool.setuptools.package-data]
-"app.api" = ["*.html"]
+"app.api" = ["*.html", "*.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

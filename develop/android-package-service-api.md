@@ -220,6 +220,63 @@ GET /api/v1/android/apps/{packageName}/files
 这个接口建议保留给内部调试和接入验证。对外稳定接口只需要查询包信息和下载接口。
 生产环境如果担心泄露短期上游 URL，可以通过配置隐藏 `url` 和 `fallbackUrls`。
 
+## 监控面板
+
+HTML 监控指挥台（深色为主、可切浅色），实时展示任务状态、provider 流转、近 N 天耗时与成功率、收录规模：
+
+```http
+GET /dashboard
+```
+
+页面纯前端轮询下面的快照接口（默认 5s，可在页面调速/暂停），图表库本地分发（内网无 CDN），经 `GET /dashboard/echarts.min.js` 静态供给。
+
+### 监控快照
+
+```http
+GET /api/v1/monitor/snapshot
+```
+
+Query 参数：
+
+```text
+days 可选，int，统计窗口天数，默认 7，范围 1–90（影响 providers / analytics 段）
+```
+
+只读聚合 `download_jobs` / `versions` / `version_sources` / `ledger` / `collection_state`，不触发采集/下载，可安全高频轮询。返回结构：
+
+```json
+{
+  "generatedAt": "2026-06-30T00:00:00+00:00",
+  "windowDays": 7,
+  "overview": {
+    "packages": 8,
+    "versions": { "total": 213, "downloadable": 152, "knownOnly": 61 },
+    "sources": [{ "source": "apkmirror", "versions": 105 }],
+    "ledgerFacts": 22,
+    "jobs": { "queued": 3, "running": 2, "succeeded": 46, "failed": 17, "total": 68 },
+    "catalog": { "trackedPackages": 8, "collectingNow": 0, "lastRefreshAt": "..." }
+  },
+  "tasks": {
+    "running": [], "queued": [],
+    "recentFailed": [{ "package": "...", "providerErrors": [{ "provider": "...", "error": "NOT_FOUND", "message": "..." }] }],
+    "recentSucceeded": [{ "package": "...", "succeededProvider": "apkpure-signed", "downloadMs": 9000 }]
+  },
+  "providers": { "items": [{ "provider": "apkpure-signed", "successes": 14, "failures": 6, "errors": { "NOT_FOUND": 1 }, "successRate": 0.7 }] },
+  "analytics": {
+    "totals": { "total": 63, "succeeded": 46, "failed": 17, "successRate": 0.7302 },
+    "daily": [{ "date": "2026-06-24", "total": 9, "succeeded": 7, "failed": 2 }],
+    "duration": { "count": 46, "avgMs": 142195.7, "p50Ms": 35000, "p90Ms": 540000, "p95Ms": 540000, "maxMs": 540000, "histogram": [{ "label": "0–5s", "count": 5 }] },
+    "perPackage": [{ "package": "...", "total": 11, "succeeded": 8, "failed": 3, "successRate": 0.7272, "avgMs": 174000, "p95Ms": 540000 }]
+  }
+}
+```
+
+说明：
+
+- 任务「命中来源」`succeededProvider` 从 `artifact_path` 的 `artifacts/{provider}/...` 段还原（job 行只记请求时的 preferred provider）；失败「流转链」`providerErrors` 按 auto fallback 的尝试顺序排列。
+- `overview.jobs` 是全表累计计数；`analytics` / `providers` 是「最近 days 个自然日（UTC）」窗口内的统计，二者口径不同。
+- `days` 的窗口下界对齐到自然日 00:00，保证每日柱状加总恒等于窗口总数。
+
 ## 错误响应
 
 统一错误结构：

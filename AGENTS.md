@@ -29,6 +29,7 @@
 - `docs/`：Google Play/gpapi、Aptoide、APKPure、APKMirror、现有项目下载链路调研。
 - `PROJECT_MAP.md`：源码入口、模块边界、运行配置和存储路径。
 - `app/`：FastAPI 服务源码；结构参考 [develop/android-package-service-design.md](develop/android-package-service-design.md) 的“项目结构”。
+- `app/api/monitor.py`：只读监控面板——`/dashboard` 单页 + `/api/v1/monitor/snapshot` 聚合数据源（任务状态、provider 流转、近 N 天耗时/成功率、收录规模）。
 - `app/catalog/`：版本目录（阶段 10–17）——SQLite 库、名↔号账本、源采集器、`VersionCatalog` 枚举层、下载编排器、定时刷新调度器、主动归档、AppMagic known 层。详见 [PROJECT_MAP.md](PROJECT_MAP.md)。
 - `tests/`：阶段主路径测试；`tests/catalog/` 为版本目录测试。
 

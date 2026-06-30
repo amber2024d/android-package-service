@@ -65,7 +65,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
         "auth": {
             "type": "none",
             "description": "本服务对外不需要任何鉴权，所有接口均可直接调用。Google Play / APKPure 等上游来源的凭证、代理由服务端持有，调用方无需关心。",
-            "public_endpoints": ["/", "/discover", "/health", "/api/v1/android/apps/{packageName}", "/api/v1/android/apps/{packageName}/files", "/api/v1/android/apps/{packageName}/versions", "/api/v1/android/apps/{packageName}/download", "/api/v1/android/downloads/{jobId}", "/api/v1/android/downloads/{jobId}/file"],
+            "public_endpoints": ["/", "/dashboard", "/discover", "/health", "/api/v1/monitor/snapshot", "/api/v1/android/apps/{packageName}", "/api/v1/android/apps/{packageName}/files", "/api/v1/android/apps/{packageName}/versions", "/api/v1/android/apps/{packageName}/download", "/api/v1/android/downloads/{jobId}", "/api/v1/android/downloads/{jobId}/file"],
         },
         "concepts": {
             "description": "调用本系统前需要理解的核心概念。",
@@ -195,6 +195,26 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                     "path": "/",
                     "auth": "public",
                     "description": "HTML 首页，展示面向 AI 的使用引导提示词",
+                },
+                "dashboard": {
+                    "method": "GET",
+                    "path": "/dashboard",
+                    "auth": "public",
+                    "description": "HTML 监控面板：实时任务状态（进行中/排队/失败/成功）、provider 流转、近 N 天耗时与成功率、收录规模。轮询 /api/v1/monitor/snapshot。",
+                },
+                "monitor_snapshot": {
+                    "method": "GET",
+                    "path": "/api/v1/monitor/snapshot",
+                    "auth": "public",
+                    "description": "监控面板的数据源：把任务状态、provider 流转、近 N 天分析、收录规模聚合成一份只读快照（JSON），可高频轮询。",
+                    "params": {
+                        "query": {
+                            "days": {"type": "int", "required": False, "default": 7, "description": "统计窗口天数（1–90），影响 providers/analytics 段"},
+                        },
+                    },
+                    "response": {
+                        "200": "{ generatedAt, windowDays, overview, tasks, providers, analytics }",
+                    },
                 },
             },
         },

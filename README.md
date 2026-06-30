@@ -133,7 +133,10 @@ curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/versions"   #
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/files"
 curl "http://localhost:11010/api/v1/android/apps/org.fdroid.fdroid/download"   # 命中缓存直接文件；未缓存返回 202 job
 curl "http://localhost:11010/api/v1/android/downloads/<jobId>"                 # 轮询 statusUrl；成功后访问 fileUrl
+curl "http://localhost:11010/api/v1/monitor/snapshot?days=7"                   # 监控快照（任务/流转/耗时/规模）
 ```
+
+浏览器打开 <http://localhost:11010/dashboard> 查看实时监控指挥台（任务状态、provider 流转、近 N 天耗时与成功率、收录规模）。
 
 ## 排查
 

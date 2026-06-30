@@ -80,6 +80,7 @@ CREATE TABLE IF NOT EXISTS download_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_download_jobs_status_created ON download_jobs(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_download_jobs_created ON download_jobs(created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_download_jobs_active_request
 ON download_jobs(request_key) WHERE status IN ('queued', 'running');
 """

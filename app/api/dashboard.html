@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>监控指挥台 · Android Package Service</title>
+<script src="/dashboard/echarts.min.js"></script>
+<style>
+:root {
+  --bg: #0a0e17;
+  --bg-glow: radial-gradient(1200px 600px at 18% -10%, rgba(77,124,254,0.10), transparent 60%), radial-gradient(900px 500px at 100% 0%, rgba(54,214,195,0.06), transparent 55%);
+  --panel: #111726;
+  --panel-2: #161d2e;
+  --panel-hover: #182034;
+  --border: #1f2940;
+  --border-strong: #2c3a57;
+  --text: #e7ecf6;
+  --text-dim: #9aa7c0;
+  --text-faint: #79859e;
+  --primary: #4d7cfe;
+  --running: #4d7cfe;
+  --success: #2fd27a;
+  --queued: #f5b53d;
+  --failed: #ff5470;
+  --cyan: #36d6c3;
+  /* 深色面板上饱和状态色已足够清晰，文字变量复用本色；浅色主题另给加深值 */
+  --success-text: var(--success);
+  --queued-text: var(--queued);
+  --failed-text: var(--failed);
+  --cyan-text: var(--cyan);
+  --shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 10px 30px rgba(0,0,0,0.45);
+  --radius: 16px;
+  --radius-sm: 11px;
+  --radius-xs: 8px;
+}
+[data-theme="light"] {
+  --bg: #eef1f6;
+  --bg-glow: radial-gradient(1100px 560px at 15% -10%, rgba(77,124,254,0.10), transparent 60%), radial-gradient(800px 460px at 100% 0%, rgba(22,179,100,0.07), transparent 55%);
+  --panel: #ffffff;
+  --panel-2: #f6f8fc;
+  --panel-hover: #f1f4fa;
+  --border: #e3e8f1;
+  --border-strong: #cfd6e4;
+  --text: #0e1626;
+  --text-dim: #555f72;
+  --text-faint: #6b7589;
+  --primary: #2563eb;
+  --running: #2563eb;
+  --success: #15a85a;
+  --queued: #b87503;
+  --failed: #e11d48;
+  --cyan: #0e9d8e;
+  /* 浅色白底上饱和状态色作正文不达 AA：文字用加深值，填充/图表仍用上面的本色 */
+  --success-text: #0f7a42;
+  --queued-text: #8a5800;
+  --failed-text: #c30f3c;
+  --cyan-text: #0a6b60;
+  --shadow: 0 1px 2px rgba(16,22,38,0.04), 0 10px 30px rgba(16,22,38,0.08);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+  background: var(--bg);
+  background-image: var(--bg-glow);
+  background-attachment: fixed;
+  color: var(--text);
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+.mono { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace; }
+.num { font-family: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 1.4px; text-transform: uppercase; color: var(--text-faint); }
+
+/* ---------- Top bar ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 30;
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: saturate(160%) blur(18px); -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; gap: 16px;
+  padding: 13px clamp(16px, 3.5vw, 34px);
+}
+.brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.logo {
+  width: 38px; height: 38px; flex-shrink: 0; border-radius: 10px;
+  background: linear-gradient(140deg, var(--primary), var(--cyan));
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--primary) 40%, transparent);
+}
+.logo svg { width: 21px; height: 21px; }
+.brand h1 { font-size: 15px; font-weight: 650; letter-spacing: 0.2px; white-space: nowrap; }
+.brand .sub { font-size: 11px; color: var(--text-faint); margin-top: 1px; letter-spacing: 0.3px; }
+.spacer { flex: 1; }
+.controls { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; justify-content: flex-end; }
+.live { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; color: var(--text-dim);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 5px 12px 5px 10px; letter-spacing: 0.4px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); position: relative; }
+.live.on .live-dot::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; border: 1px solid var(--success); animation: ping 1.8s cubic-bezier(0,0,0.2,1) infinite; }
+.live.paused .live-dot { background: var(--text-faint); }
+.live.error .live-dot { background: var(--failed); }
+.live.error { color: var(--failed); border-color: color-mix(in srgb, var(--failed) 40%, var(--border)); }
+@keyframes ping { 0% { transform: scale(0.7); opacity: 1; } 100% { transform: scale(2.1); opacity: 0; } }
+select.ctl, button.ctl {
+  appearance: none; -webkit-appearance: none;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--border); border-radius: var(--radius-xs);
+  font-size: 12.5px; font-family: inherit; height: 33px; padding: 0 11px; cursor: pointer; line-height: 1;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+select.ctl { padding-right: 27px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236b7793' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 9px center; }
+button.ctl:hover, select.ctl:hover { border-color: var(--border-strong); background: var(--panel-hover); }
+button.ctl:active { transform: scale(0.96); }
+.icon-btn { width: 33px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.icon-btn svg { width: 15px; height: 15px; }
+.updated { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+
+/* ---------- Layout ---------- */
+main { max-width: 1440px; margin: 0 auto; padding: clamp(14px, 2.4vw, 26px); display: flex; flex-direction: column; gap: 18px; }
+.row { display: grid; gap: 16px; }
+.section-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: -2px; }
+.section-head h2 { font-size: 13px; font-weight: 650; letter-spacing: 0.3px; }
+.section-head .note { font-size: 11.5px; color: var(--text-dim); }
+
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); }
+.panel-pad { padding: 18px 20px; }
+.panel-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.panel-title h3 { font-size: 13px; font-weight: 600; letter-spacing: 0.2px; }
+.panel-title .tag { font-size: 11px; color: var(--text-faint); }
+
+/* ---------- Hero ---------- */
+.hero { grid-template-columns: 340px 1fr; }
+.gauge-card { padding: 16px 18px 18px; display: flex; flex-direction: column; }
+.gauge-card .eyebrow { margin-bottom: 2px; }
+#gauge { width: 100%; height: 210px; }
+.gauge-foot { display: flex; justify-content: space-around; border-top: 1px solid var(--border); padding-top: 13px; margin-top: 2px; }
+.gauge-foot div { text-align: center; }
+.gauge-foot .gv { font-size: 19px; font-weight: 650; }
+.gauge-foot .gl { font-size: 11px; color: var(--text-faint); margin-top: 2px; }
+.gauge-foot .s { color: var(--success-text); } .gauge-foot .f { color: var(--failed-text); }
+
+.kpi-grid { display: grid; grid-template-columns: repeat(2, 1fr); grid-template-rows: repeat(2, 1fr); gap: 16px; }
+.kpi { position: relative; padding: 18px 20px; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; }
+.kpi::before { content: ""; position: absolute; left: 0; top: 14px; bottom: 14px; width: 3px; border-radius: 3px; background: var(--accent, var(--border-strong)); opacity: 0.9; }
+.kpi.k-pkg { --accent: var(--cyan); } .kpi.k-ver { --accent: var(--primary); }
+.kpi.k-run { --accent: var(--running); } .kpi.k-queue { --accent: var(--queued); }
+.kpi .k-top { display: flex; align-items: center; gap: 8px; }
+.kpi .k-label { font-size: 12px; color: var(--text-dim); font-weight: 500; }
+.kpi .k-value { font-size: clamp(30px, 4vw, 40px); font-weight: 680; letter-spacing: -1px; line-height: 1; margin: 12px 0 7px; }
+.kpi.k-run .k-value { color: var(--running); } .kpi.k-queue .k-value { color: var(--queued); }
+.kpi .k-sub { font-size: 11.5px; color: var(--text-dim); }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+/* ---------- Task board ---------- */
+.board { grid-template-columns: repeat(4, 1fr); }
+.lane { display: flex; flex-direction: column; max-height: 430px; }
+.lane-head { padding: 13px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+.lane-head h3 { font-size: 13px; font-weight: 600; }
+.lane-head .badge { margin-left: auto; font-size: 11.5px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; min-width: 22px; text-align: center; padding: 2px 8px; border-radius: 20px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim); }
+.lane-body { padding: 11px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; }
+.lane.l-run .dot { background: var(--running); box-shadow: 0 0 6px color-mix(in srgb, var(--running) 50%, transparent); }
+.lane.l-queue .dot { background: var(--queued); box-shadow: 0 0 6px color-mix(in srgb, var(--queued) 50%, transparent); }
+.lane.l-fail .dot { background: var(--failed); box-shadow: 0 0 6px color-mix(in srgb, var(--failed) 50%, transparent); }
+.lane.l-ok .dot { background: var(--success); box-shadow: 0 0 6px color-mix(in srgb, var(--success) 50%, transparent); }
+[data-theme="light"] .lane .dot, [data-theme="light"] .kpi .dot { box-shadow: none !important; }
+
+.task { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 12px; transition: border-color 0.15s ease; }
+.task:hover { border-color: var(--border-strong); }
+.lane.l-run .task { border-left: 2px solid var(--running); }
+.lane.l-fail .task { border-left: 2px solid color-mix(in srgb, var(--failed) 60%, var(--border)); }
+.task-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.task-pkg { font-size: 12.5px; font-weight: 600; word-break: break-all; line-height: 1.35; }
+.task-time { font-size: 11.5px; color: var(--text-dim); white-space: nowrap; flex-shrink: 0; font-family: ui-monospace, Menlo, monospace; }
+.task-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; align-items: center; }
+.chip { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: var(--panel-hover); color: var(--text-dim); border: 1px solid var(--border); white-space: nowrap; }
+.chip.ver { font-family: ui-monospace, Menlo, monospace; }
+.chip.prov { background: color-mix(in srgb, var(--primary) 16%, transparent); color: color-mix(in srgb, var(--primary) 88%, var(--text)); border-color: color-mix(in srgb, var(--primary) 30%, transparent); }
+.chip.err { background: color-mix(in srgb, var(--failed) 15%, transparent); color: color-mix(in srgb, var(--failed-text) 80%, var(--text)); border-color: color-mix(in srgb, var(--failed) 28%, transparent); cursor: help; }
+.task-error { margin-top: 8px; font-size: 11.5px; color: color-mix(in srgb, var(--failed) 92%, var(--text)); line-height: 1.45; word-break: break-word; background: color-mix(in srgb, var(--failed) 9%, transparent); border-radius: 6px; padding: 6px 8px; }
+.chain { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.chain .arrow { color: var(--text-faint); font-size: 10px; }
+.run-bar { height: 2px; border-radius: 2px; margin-top: 9px; background: linear-gradient(90deg, transparent, var(--running), transparent); background-size: 200% 100%; animation: slide 1.5s linear infinite; }
+@keyframes slide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+.empty { text-align: center; color: var(--text-faint); font-size: 12px; padding: 26px 12px; }
+.empty svg { width: 24px; height: 24px; opacity: 0.45; margin-bottom: 7px; }
+
+/* ---------- Charts ---------- */
+.analytics { grid-template-columns: 1fr 1.25fr; }
+.lower { grid-template-columns: 1fr 1fr; }
+.chart { width: 100%; }
+#daily { height: 290px; } #providers { height: 290px; } #duration { height: 230px; } #sources { height: 230px; }
+.chart-wrap { position: relative; }
+.chart-empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; color: var(--text-faint); font-size: 12.5px; gap: 8px; }
+.chart-empty.show { display: flex; }
+.chart-empty svg { width: 26px; height: 26px; opacity: 0.4; }
+
+.dur-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin-bottom: 14px; }
+.dur-stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius-xs); padding: 10px 12px; }
+.dur-stat .l { font-size: 10.5px; color: var(--text-dim); letter-spacing: 0.5px; text-transform: uppercase; }
+.dur-stat .v { font-size: 17px; font-weight: 650; margin-top: 5px; font-family: ui-monospace, Menlo, monospace; }
+
+/* ---------- Per-package table ---------- */
+.tbl-wrap { max-height: 460px; overflow-y: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.tbl th { text-align: left; font-size: 10.5px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; padding: 10px 14px; border-bottom: 1px solid var(--border); background: var(--panel); position: sticky; top: 0; z-index: 1; }
+.tbl td { padding: 11px 14px; border-bottom: 1px solid var(--border); }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: var(--panel-2); }
+.tbl td.n, .tbl th.n { text-align: right; font-family: ui-monospace, Menlo, monospace; }
+.tbl .pkg { font-weight: 600; word-break: break-all; }
+.rate-cell { display: inline-flex; align-items: center; gap: 9px; justify-content: flex-end; width: 100%; }
+.rate-track { width: 58px; height: 6px; border-radius: 4px; background: var(--border); box-shadow: inset 0 0 0 1px var(--border); overflow: hidden; flex-shrink: 0; }
+.rate-track .rf { height: 100%; border-radius: 4px; }
+
+.sources-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.src-chip { font-size: 11.5px; padding: 5px 11px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); color: var(--text-dim); }
+.src-chip b { color: var(--text); font-weight: 650; font-family: ui-monospace, Menlo, monospace; }
+
+/* ---------- Banner / foot ---------- */
+.banner { position: fixed; top: 64px; left: 50%; transform: translateX(-50%) translateY(-14px); z-index: 40; background: #b00d35; color: #fff; font-size: 12.5px; font-weight: 600; padding: 9px 18px; border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,0.4); opacity: 0; pointer-events: none; transition: all 0.25s ease; }
+.banner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.foot { text-align: center; color: var(--text-faint); font-size: 11.5px; padding: 6px 0 2px; }
+.foot a { color: var(--primary); text-decoration: none; }
+.foot a:hover { text-decoration: underline; }
+
+@media (max-width: 1080px) {
+  .hero, .analytics, .lower { grid-template-columns: 1fr; }
+  .board { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 600px) {
+  .board, .kpi-grid { grid-template-columns: 1fr; }
+  .topbar { flex-wrap: wrap; } .spacer { display: none; }
+  .controls { width: 100%; justify-content: flex-start; }
+  .brand .sub { display: none; }
+  .lane { max-height: 300px; }
+  #daily, #providers { height: 240px; }
+  #duration, #sources { height: 210px; }
+  .dur-stats { grid-template-columns: repeat(2, 1fr); }
+}
+*:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; } }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">
+    <div class="logo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+        <polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>
+      </svg>
+    </div>
+    <div>
+      <h1>监控指挥台</h1>
+      <div class="sub">Android Package Service</div>
+    </div>
+  </div>
+  <div class="spacer"></div>
+  <div class="controls">
+    <div class="live on" id="live"><span class="live-dot"></span><span id="live-text">实时</span></div>
+    <select class="ctl" id="window-select" title="统计窗口" aria-label="统计窗口">
+      <option value="1">近 1 天</option><option value="3">近 3 天</option>
+      <option value="7" selected>近 7 天</option><option value="14">近 14 天</option><option value="30">近 30 天</option>
+    </select>
+    <select class="ctl" id="interval-select" title="刷新频率" aria-label="刷新频率">
+      <option value="2000">2 秒</option><option value="5000" selected>5 秒</option>
+      <option value="10000">10 秒</option><option value="30000">30 秒</option><option value="0">暂停</option>
+    </select>
+    <button class="ctl icon-btn" id="refresh-btn" title="立即刷新" aria-label="立即刷新">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+    </button>
+    <button class="ctl icon-btn" id="theme-btn" title="切换主题" aria-label="切换主题">
+      <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></svg>
+    </button>
+    <span class="updated" id="updated" role="status" aria-live="polite">连接中…</span>
+  </div>
+</div>
+
+<div class="banner" id="banner" role="alert" aria-live="assertive">连接中断，正在重试…</div>
+
+<main>
+  <!-- Hero: gauge + KPI cluster -->
+  <section class="row hero">
+    <div class="panel gauge-card">
+      <div class="eyebrow">近 <span id="gauge-win">7</span> 天成功率</div>
+      <div class="chart-wrap"><div id="gauge" class="chart"></div></div>
+      <div class="gauge-foot">
+        <div><div class="gv s num" id="g-ok">0</div><div class="gl">成功</div></div>
+        <div><div class="gv f num" id="g-fail">0</div><div class="gl">失败</div></div>
+        <div><div class="gv num" id="g-total">0</div><div class="gl">总任务</div></div>
+      </div>
+    </div>
+    <div class="kpi-grid" id="kpi-grid"></div>
+  </section>
+
+  <!-- Task board -->
+  <section class="row">
+    <div class="section-head"><h2>任务状态</h2><span class="note" id="board-note"></span></div>
+    <div class="row board" id="board"></div>
+  </section>
+
+  <!-- Provider flow + daily -->
+  <section class="row analytics">
+    <div class="panel panel-pad">
+      <div class="panel-title"><h3>Provider 流转</h3><span class="tag">命中来源 vs 失败尝试</span></div>
+      <div class="chart-wrap">
+        <div id="providers" class="chart"></div>
+        <div class="chart-empty" id="providers-empty">窗口内暂无 provider 调用</div>
+      </div>
+    </div>
+    <div class="panel panel-pad">
+      <div class="panel-title"><h3>每日任务量与成功率</h3><span class="tag" id="daily-win">近 7 天</span></div>
+      <div class="chart-wrap">
+        <div id="daily" class="chart"></div>
+        <div class="chart-empty" id="daily-empty">窗口内暂无完成任务</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Duration + sources -->
+  <section class="row lower">
+    <div class="panel panel-pad">
+      <div class="panel-title"><h3>下载耗时分布</h3><span class="tag">成功任务</span></div>
+      <div class="dur-stats" id="dur-stats"></div>
+      <div class="chart-wrap">
+        <div id="duration" class="chart"></div>
+        <div class="chart-empty" id="duration-empty">窗口内暂无成功下载样本</div>
+      </div>
+    </div>
+    <div class="panel panel-pad">
+      <div class="panel-title"><h3>收录来源构成</h3><span class="tag">版本数 / 来源</span></div>
+      <div class="chart-wrap">
+        <div id="sources" class="chart"></div>
+        <div class="chart-empty" id="sources-empty">暂无来源数据</div>
+      </div>
+      <div class="sources-list" id="sources-list"></div>
+    </div>
+  </section>
+
+  <!-- Per-package -->
+  <section class="row">
+    <div class="section-head"><h2>各包下载统计</h2><span class="note" id="perpkg-win">近 7 天</span></div>
+    <div class="panel"><div class="tbl-wrap" id="perpkg"></div></div>
+  </section>
+
+  <div class="foot"><a href="/">首页</a> · <a href="/discover">API 文档</a> · <a href="/health">健康检查</a></div>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const state = { days: 7, intervalMs: 5000, timer: null, lastData: null, busy: false, failStreak: 0 };
+const charts = {};
+
+/* ---------- helpers ---------- */
+function esc(s) { return s == null ? "" : String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"); }
+function fmtInt(n) { const x = Number(n); return Number.isFinite(x) ? x.toLocaleString("en-US") : "—"; }
+function fmtPct(r) { return r == null ? "—" : (r * 100).toFixed(r >= 0.9995 ? 0 : 1) + "%"; }
+function fmtDur(ms) {
+  if (ms == null) return "—";
+  const s = ms / 1000;
+  if (s < 1) return Math.round(ms) + "ms";
+  if (s < 60) return (s < 10 ? s.toFixed(1) : Math.round(s)) + "s";
+  const m = Math.floor(s / 60), rs = Math.round(s % 60);
+  if (m < 60) return rs ? `${m}m ${rs}s` : `${m}m`;
+  const h = Math.floor(m / 60), rm = m % 60;
+  return rm ? `${h}h ${rm}m` : `${h}h`;
+}
+function rateColor(r) { const c = cssVar; if (r == null) return c("--text-faint"); if (r >= 0.9) return c("--success"); if (r >= 0.6) return c("--queued"); return c("--failed"); }
+function relTime(iso) {
+  if (!iso) return "";
+  const d = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (!Number.isFinite(d)) return "";
+  if (d < 0) return "刚刚";
+  if (d < 60) return Math.floor(d) + "s 前";
+  if (d < 3600) return Math.floor(d / 60) + "m 前";
+  if (d < 86400) return Math.floor(d / 3600) + "h 前";
+  return Math.floor(d / 86400) + "d 前";
+}
+function cssVar(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+function palette() {
+  return { text: cssVar("--text"), dim: cssVar("--text-dim"), faint: cssVar("--text-faint"), border: cssVar("--border"),
+    panel: cssVar("--panel-2"), primary: cssVar("--primary"), success: cssVar("--success"), queued: cssVar("--queued"),
+    failed: cssVar("--failed"), cyan: cssVar("--cyan") }; }
+function getChart(id) { if (!charts[id]) charts[id] = echarts.init($(id), null, { renderer: "canvas" }); return charts[id]; }
+function toggleEmpty(id, show) { const el = $(id + "-empty"); if (el) el.classList.toggle("show", show); }
+function baseTooltip(c) { return { backgroundColor: c.panel, borderColor: c.border, borderWidth: 1, textStyle: { color: c.text, fontSize: 12 }, extraCssText: "border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,0.3);" }; }
+const GRID_FONT = "ui-monospace, Menlo, monospace";
+
+/* ---------- KPI ---------- */
+function renderKpis(d) {
+  const o = d.overview;
+  const tiles = [
+    { cls: "k-pkg", label: "收录包数", value: fmtInt(o.packages), sub: `已跟踪 ${fmtInt(o.catalog.trackedPackages)} · 采集中 ${fmtInt(o.catalog.collectingNow)}` },
+    { cls: "k-ver", label: "版本数量", value: fmtInt(o.versions.total), sub: `可下载 ${fmtInt(o.versions.downloadable)} · known ${fmtInt(o.versions.knownOnly)}` },
+    { cls: "k-run", label: "进行中", value: fmtInt(o.jobs.running), sub: "正在下载", dot: cssVar("--running") },
+    { cls: "k-queue", label: "排队中", value: fmtInt(o.jobs.queued), sub: "等待 worker 认领", dot: cssVar("--queued") },
+  ];
+  $("kpi-grid").innerHTML = tiles.map(t => `
+    <div class="panel kpi ${t.cls}">
+      <div class="k-top">${t.dot ? `<span class="dot" style="background:${t.dot};box-shadow:0 0 6px color-mix(in srgb, ${t.dot} 50%, transparent)"></span>` : ""}<span class="k-label">${esc(t.label)}</span></div>
+      <div>
+        <div class="k-value num">${t.value}</div>
+        <div class="k-sub">${esc(t.sub)}</div>
+      </div>
+    </div>`).join("");
+}
+
+/* ---------- gauge ---------- */
+function renderGauge(d) {
+  const c = palette();
+  const t = d.analytics.totals;
+  const rate = t.successRate;
+  const arc = rate == null ? c.faint : rate >= 0.9 ? c.success : rate >= 0.6 ? c.queued : c.failed;
+  getChart("gauge").setOption({
+    series: [{
+      type: "gauge", startAngle: 210, endAngle: -30, min: 0, max: 100, radius: "100%", center: ["50%", "62%"],
+      progress: { show: true, width: 13, roundCap: true, itemStyle: { color: arc, shadowColor: arc, shadowBlur: 10 } },
+      axisLine: { lineStyle: { width: 13, color: [[1, c.border]] } },
+      pointer: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false }, anchor: { show: false },
+      title: { show: false },
+      detail: { valueAnimation: true, offsetCenter: [0, "2%"], fontSize: 44, fontWeight: 700, fontFamily: GRID_FONT,
+        color: rate == null ? c.faint : rate === 0 ? c.failed : c.text,
+        formatter: (v) => rate == null ? "—" : (rate >= 0.9995 ? "100%" : v.toFixed(1) + "%") },
+      data: [{ value: rate == null ? 0 : (rate >= 0.9995 ? 100 : rate * 100) }],
+    }],
+  }, true);
+  $("g-ok").textContent = fmtInt(t.succeeded);
+  $("g-fail").textContent = fmtInt(t.failed);
+  $("g-total").textContent = fmtInt(t.total);
+  $("gauge-win").textContent = d.windowDays;
+}
+
+/* ---------- daily combo ---------- */
+function renderDaily(d) {
+  const c = palette();
+  const days = d.analytics.daily;
+  const hasData = days.some(x => x.total > 0);
+  toggleEmpty("daily", !hasData);
+  const grad = new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: echarts.color.modifyAlpha(c.primary, 0.33) }, { offset: 1, color: echarts.color.modifyAlpha(c.primary, 0.02) }]);
+  getChart("daily").setOption({
+    grid: { left: 8, right: 12, top: 34, bottom: 6, containLabel: true },
+    legend: { data: ["成功", "失败", "成功率"], top: 0, right: 0, itemWidth: 11, itemHeight: 11, itemGap: 14, textStyle: { color: c.dim, fontSize: 11 } },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...baseTooltip(c) },
+    xAxis: { type: "category", data: days.map(x => x.date.slice(5)), axisLine: { lineStyle: { color: c.border } }, axisTick: { show: false }, axisLabel: { color: c.dim, fontSize: 10.5, fontFamily: GRID_FONT } },
+    yAxis: [
+      { type: "value", splitLine: { lineStyle: { color: c.border, type: "dashed" } }, axisLabel: { color: c.dim, fontSize: 10.5, fontFamily: GRID_FONT } },
+      { type: "value", min: 0, max: 100, splitLine: { show: false }, axisLabel: { color: c.dim, fontSize: 10.5, fontFamily: GRID_FONT, formatter: "{value}%" } },
+    ],
+    series: [
+      { name: "成功", type: "bar", stack: "t", barMaxWidth: 30, itemStyle: { color: c.success },
+        data: days.map(x => ({ value: x.succeeded, itemStyle: { borderRadius: x.failed > 0 ? [0, 0, 0, 0] : [3, 3, 0, 0] } })) },
+      { name: "失败", type: "bar", stack: "t", barMaxWidth: 30, itemStyle: { color: c.failed, borderRadius: [3, 3, 0, 0] }, data: days.map(x => x.failed) },
+      { name: "成功率", type: "line", yAxisIndex: 1, smooth: true, symbol: "circle", symbolSize: 6, connectNulls: true,
+        lineStyle: { color: c.primary, width: 2.5 }, itemStyle: { color: c.primary }, areaStyle: { color: grad },
+        data: days.map(x => x.total ? +(x.succeeded / x.total * 100).toFixed(1) : null) },
+    ],
+  }, true);
+}
+
+/* ---------- providers ---------- */
+function renderProviders(d) {
+  const c = palette();
+  const items = [...d.providers.items].sort((a, b) => (a.successes + a.failures) - (b.successes + b.failures));
+  toggleEmpty("providers", items.length === 0);
+  const errMap = {}; items.forEach(i => errMap[i.provider] = i);
+  getChart("providers").setOption({
+    grid: { left: 8, right: 16, top: 28, bottom: 4, containLabel: true },
+    legend: { data: ["成功命中", "失败尝试"], top: 0, right: 0, itemWidth: 11, itemHeight: 11, textStyle: { color: c.dim, fontSize: 11 } },
+    tooltip: {
+      trigger: "axis", axisPointer: { type: "shadow" }, ...baseTooltip(c),
+      formatter: (ps) => {
+        const name = ps[0].name; const it = errMap[name] || {}; const attempts = (it.successes || 0) + (it.failures || 0);
+        const errs = Object.entries(it.errors || {}).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k}×${v}`).join("、");
+        return `<b>${esc(name)}</b><br/>成功命中 ${it.successes || 0} · 失败尝试 ${it.failures || 0}<br/>成功率 ${fmtPct(it.successRate)} · 共 ${attempts} 次` + (errs ? `<br/><span style="color:${c.faint}">${esc(errs)}</span>` : "");
+      },
+    },
+    xAxis: { type: "value", splitLine: { lineStyle: { color: c.border, type: "dashed" } }, axisLabel: { color: c.dim, fontSize: 10.5, fontFamily: GRID_FONT } },
+    yAxis: { type: "category", data: items.map(i => i.provider), axisLine: { lineStyle: { color: c.border } }, axisTick: { show: false }, axisLabel: { color: c.dim, fontSize: 11.5 } },
+    series: [
+      { name: "成功命中", type: "bar", stack: "p", barMaxWidth: 22, itemStyle: { color: c.success, borderRadius: [3, 0, 0, 3] }, data: items.map(i => i.successes) },
+      { name: "失败尝试", type: "bar", stack: "p", barMaxWidth: 22, itemStyle: { color: c.failed, borderRadius: [0, 3, 3, 0] }, data: items.map(i => i.failures) },
+    ],
+  }, true);
+}
+
+/* ---------- duration ---------- */
+function renderDuration(d) {
+  const c = palette();
+  const du = d.analytics.duration;
+  const stats = [["平均", du.avgMs], ["P50", du.p50Ms], ["P90", du.p90Ms], ["P95", du.p95Ms], ["最长", du.maxMs], ["样本", du.count]];
+  $("dur-stats").innerHTML = stats.map(([l, v]) => `<div class="dur-stat"><div class="l">${l}</div><div class="v">${l === "样本" ? (v == null ? "—" : fmtInt(v)) : fmtDur(v)}</div></div>`).join("");
+  toggleEmpty("duration", !du.count);
+  const grad = new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+    { offset: 0, color: c.cyan }, { offset: 1, color: c.primary }]);
+  getChart("duration").setOption({
+    grid: { left: 6, right: 14, top: 14, bottom: 4, containLabel: true },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" }, ...baseTooltip(c), formatter: (ps) => `${esc(ps[0].name)}<br/><b>${ps[0].value}</b> 个任务` },
+    xAxis: { type: "category", data: du.histogram.map(h => h.label), axisLine: { lineStyle: { color: c.border } }, axisTick: { show: false }, axisLabel: { color: c.dim, fontSize: 10, fontFamily: GRID_FONT } },
+    yAxis: { type: "value", splitLine: { lineStyle: { color: c.border, type: "dashed" } }, axisLabel: { color: c.dim, fontSize: 10.5, fontFamily: GRID_FONT } },
+    series: [{ type: "bar", barMaxWidth: 38, itemStyle: { color: grad, borderRadius: [4, 4, 0, 0] }, data: du.histogram.map(h => h.count) }],
+  }, true);
+}
+
+/* ---------- sources donut ---------- */
+function renderSources(d) {
+  const c = palette();
+  const s = d.overview.sources;
+  toggleEmpty("sources", s.length === 0);
+  const colors = [c.primary, c.cyan, c.success, c.queued, c.failed, c.dim];
+  getChart("sources").setOption({
+    tooltip: { trigger: "item", ...baseTooltip(c), formatter: (p) => `${esc(p.name)}<br/><b>${fmtInt(p.value)}</b> 个版本 · ${p.percent}%` },
+    legend: { type: "scroll", orient: "vertical", right: 4, top: "center", itemWidth: 10, itemHeight: 10, textStyle: { color: c.dim, fontSize: 11.5 } },
+    series: [{
+      type: "pie", radius: ["52%", "78%"], center: ["38%", "50%"], avoidLabelOverlap: true,
+      itemStyle: { borderColor: cssVar("--panel"), borderWidth: 2, borderRadius: 4 },
+      label: { show: false }, labelLine: { show: false },
+      color: colors,
+      data: s.map(x => ({ name: x.source, value: x.versions })),
+    }],
+  }, true);
+  $("sources-list").innerHTML = s.map(x => `<div class="src-chip">${esc(x.source)} <b>${fmtInt(x.versions)}</b></div>`).join("")
+    + `<div class="src-chip">账本事实 <b>${fmtInt(d.overview.ledgerFacts)}</b></div>`;
+}
+
+/* ---------- task board ---------- */
+const EMPTY_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+function taskCard(job, kind) {
+  const meta = [`<span class="chip ver">${esc(job.versionName || (job.versionCode != null ? "code " + job.versionCode : "最新版"))}</span>`];
+  if (kind === "ok" && job.succeededProvider) meta.push(`<span class="chip prov">${esc(job.succeededProvider)}</span>`);
+  else if (job.requestedProvider) meta.push(`<span class="chip">指定 ${esc(job.requestedProvider)}</span>`);
+  if (kind === "ok" && job.downloadMs != null) meta.push(`<span class="chip">耗时 ${fmtDur(job.downloadMs)}</span>`);
+  let extra = "";
+  if (kind === "run") extra = '<div class="run-bar"></div>';
+  if (kind === "fail") {
+    if (job.error) extra += `<div class="task-error">${esc(job.error)}</div>`;
+    if (job.providerErrors && job.providerErrors.length) {
+      extra += `<div class="chain">${job.providerErrors.map(e => `<span class="chip err" title="${esc(e.message || "")}">${esc(e.provider || "?")} · ${esc(e.error || "ERR")}</span>`).join('<span class="arrow">→</span>')}</div>`;
+    }
+  }
+  const timeLabel = (kind === "ok" || kind === "fail") ? relTime(job.finishedAt || job.updatedAt)
+    : (job.elapsedMs != null ? fmtDur(job.elapsedMs) : relTime(job.createdAt));
+  return `<div class="task"><div class="task-top"><div class="task-pkg">${esc(job.package)}</div><div class="task-time">${esc(timeLabel)}</div></div><div class="task-meta">${meta.join("")}</div>${extra}</div>`;
+}
+function lane(kind, cls, title, jobs) {
+  const body = (jobs && jobs.length) ? jobs.map(j => taskCard(j, kind)).join("") : `<div class="empty">${EMPTY_SVG}<div>暂无任务</div></div>`;
+  return `<div class="panel lane ${cls}"><div class="lane-head"><span class="dot"></span><h3>${title}</h3><span class="badge">${jobs ? jobs.length : 0}</span></div><div class="lane-body">${body}</div></div>`;
+}
+function renderBoard(d) {
+  const t = d.tasks;
+  const tops = [...document.querySelectorAll("#board .lane-body")].map(el => el.scrollTop);
+  $("board").innerHTML = [
+    lane("run", "l-run", "进行中", t.running),
+    lane("queue", "l-queue", "排队中", t.queued),
+    lane("fail", "l-fail", "最近失败", t.recentFailed),
+    lane("ok", "l-ok", "最近成功", t.recentSucceeded),
+  ].join("");
+  document.querySelectorAll("#board .lane-body").forEach((el, i) => { if (tops[i] != null) el.scrollTop = tops[i]; });
+  const active = t.running.length + t.queued.length;
+  $("board-note").textContent = active ? `活跃 ${active}` : "当前空闲";
+}
+
+/* ---------- per-package ---------- */
+function renderPerPackage(d) {
+  const rows = d.analytics.perPackage;
+  if (!rows.length) { $("perpkg").innerHTML = `<div class="empty" style="padding:34px">${EMPTY_SVG}<div>窗口内暂无完成的下载任务</div></div>`; return; }
+  $("perpkg").innerHTML = `
+    <table class="tbl">
+      <thead><tr><th>包名</th><th class="n">任务</th><th class="n">成功</th><th class="n">失败</th><th class="n">成功率</th><th class="n">平均耗时</th><th class="n">P95</th></tr></thead>
+      <tbody>${rows.map(r => `
+        <tr>
+          <td class="pkg">${esc(r.package)}</td>
+          <td class="n">${r.total}</td>
+          <td class="n" style="color:var(--success-text);font-weight:600">${r.succeeded}</td>
+          <td class="n" style="color:${r.failed ? "var(--failed-text)" : "var(--text-faint)"};font-weight:${r.failed ? 600 : 400}">${r.failed}</td>
+          <td class="n"><span class="rate-cell"><span class="rate-track" title="成功率 ${fmtPct(r.successRate)}"><span class="rf" style="width:${(r.successRate || 0) * 100}%;background:${rateColor(r.successRate)}"></span></span>${fmtPct(r.successRate)}</span></td>
+          <td class="n">${fmtDur(r.avgMs)}</td>
+          <td class="n">${fmtDur(r.p95Ms)}</td>
+        </tr>`).join("")}</tbody>
+    </table>`;
+}
+
+/* ---------- render all ---------- */
+function renderCharts(d) {
+  if (!window.echarts) return;  // 图表库未加载（极端情况）：不阻断其余面板渲染
+  try { renderGauge(d); renderDaily(d); renderProviders(d); renderDuration(d); renderSources(d); }
+  catch (e) { console.error("chart render failed", e); }
+}
+function render(d) {
+  state.lastData = d;
+  renderKpis(d); renderBoard(d); renderPerPackage(d); renderCharts(d);
+  $("daily-win").textContent = `近 ${d.windowDays} 天`;
+  $("perpkg-win").textContent = `近 ${d.windowDays} 天`;
+  $("updated").textContent = "更新于 " + new Date(d.generatedAt).toLocaleTimeString("zh-CN", { hour12: false });
+}
+
+/* ---------- polling ---------- */
+function setLive(mode) { $("live").className = "live " + mode; $("live-text").textContent = mode === "paused" ? "已暂停" : mode === "error" ? "连接中断" : "实时"; }
+function banner(show) { $("banner").classList.toggle("show", show); }
+async function tick() {
+  if (state.busy) return;
+  state.busy = true;
+  try {
+    const res = await fetch(`/api/v1/monitor/snapshot?days=${state.days}`, { cache: "no-store" });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    render(await res.json());
+    state.failStreak = 0; banner(false);
+    if (state.intervalMs > 0) setLive("on");
+  } catch (e) {
+    state.failStreak++;
+    if (state.failStreak >= 2) { setLive("error"); banner(true); }
+    if (!state.lastData) { setLive("error"); $("updated").textContent = "无法连接服务"; }
+  } finally { state.busy = false; }
+}
+function schedule() { if (state.timer) clearTimeout(state.timer); if (state.intervalMs > 0) state.timer = setTimeout(loop, state.intervalMs); }
+async function loop() { await tick(); schedule(); }
+
+/* ---------- controls ---------- */
+$("interval-select").addEventListener("change", (e) => {
+  state.intervalMs = parseInt(e.target.value, 10);
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+  if (state.intervalMs === 0) setLive("paused"); else { setLive("on"); loop(); }
+});
+$("window-select").addEventListener("change", (e) => {
+  state.days = parseInt(e.target.value, 10);
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+  if (state.intervalMs > 0) loop(); else tick();
+});
+$("refresh-btn").addEventListener("click", () => tick());
+
+const THEME_KEY = "aps-dashboard-theme";
+const SUN = '<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
+const MOON = '<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>';
+function applyTheme(t) { document.documentElement.setAttribute("data-theme", t); $("theme-icon").innerHTML = t === "dark" ? MOON : SUN; }
+$("theme-btn").addEventListener("click", () => {
+  const next = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+  localStorage.setItem(THEME_KEY, next); applyTheme(next);
+  // KPI 圆点 / 各包成功率条把主题色烤进了行内 style，需连同图表一起按新主题重绘
+  if (state.lastData) { renderKpis(state.lastData); renderPerPackage(state.lastData); renderCharts(state.lastData); }
+});
+(function initTheme() { const saved = localStorage.getItem(THEME_KEY); applyTheme(saved === "light" ? "light" : "dark"); })();
+
+window.addEventListener("resize", () => { Object.values(charts).forEach(c => c.resize()); });
+document.addEventListener("visibilitychange", () => {
+  if (state.timer) { clearTimeout(state.timer); state.timer = null; }
+  if (!document.hidden && state.intervalMs > 0) loop();
+});
+
+loop();
+</script>
+</body>
+</html>

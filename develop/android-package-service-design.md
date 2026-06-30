@@ -79,6 +79,11 @@ android-package-service/
       routes.py
       schemas.py
       errors.py
+      discover.py           # 服务自描述 /discover + HTML 首页 /
+      home.html             # 首页模板
+      monitor.py            # 只读监控聚合 + /dashboard 面板 + /api/v1/monitor/snapshot
+      dashboard.html        # 监控指挥台前端（轮询 snapshot，ECharts 图表）
+      echarts.min.js        # 本地分发的图表库（内网无 CDN），经 /dashboard/echarts.min.js 供给
     core/
       config.py
       logging.py
