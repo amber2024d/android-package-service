@@ -33,6 +33,8 @@ def test_default_selects_first_version():
 
     assert plan.version_name == "1.23.2"
     assert plan.files[0].url == "https://d.apkpure.com/b/APK/org.fdroid.fdroid?version=1.23.2"
+    assert plan.files[0].metadata["download.fallback"] == "wget"
+    assert "Chrome/" in plan.files[0].headers["User-Agent"]
 
 
 def test_specified_history_version_success():

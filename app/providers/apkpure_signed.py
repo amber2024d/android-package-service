@@ -353,8 +353,9 @@ class APKPureSignedProvider(AndroidPackageProvider):
             url=url,
             size=self._int(asset.get("size")),
             sha1=self._str_or_none(asset.get("sha1")),
+            headers=apkpure_versions.WEB_DOWNLOAD_HEADERS,
             proxy=self.proxy,
-            metadata={"asset.type": asset_type},
+            metadata={"asset.type": asset_type, "download.fallback": "wget"},
         )
 
     def _asset(self, detail: dict[str, Any]) -> dict[str, Any]:

@@ -240,6 +240,7 @@ POST https://tapi.pureapk.com/v3/get_app_detail
 - `asset.type=APK` 时输出单 `BASE_APK`。
 - `asset.type=XAPK` 时输出单个 `XAPK` 文件，由下载层直接返回。
 - `asset.type=APKS` 时输出单个 `APKS` 文件，由下载层按 `.apks` 返回。
+- CDN 文件下载带桌面浏览器请求头，并标记 `download.fallback=wget`；公共下载层先试 `httpx`，遇到 CDN 403 等失败后自动用 `wget` 兜底。
 
 版本能力：
 
@@ -302,6 +303,7 @@ GET https://api.pureapk.com/m/v3/cms/app_version?hl=en-US&package_name={packageN
 - 解析 `APKJ` 为 `BASE_APK`，`XAPKJ` 为 `XAPK`。
 - 如果正则捕获到 APKS 形态，映射为 `APKS`，不要保存成 APK。
 - 如果缺少应用名，第一版直接使用包名；暂不额外抓 Play Store 标题。
+- 解析出的 CDN 直链同样标记 `download.fallback=wget`，避免 APKPure CDN 对 `httpx` 403 时直接失败。
 
 版本能力：
 

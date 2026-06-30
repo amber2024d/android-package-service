@@ -14,6 +14,7 @@ from app.domain.models import (
     PackageFileType,
     PackageVersion,
 )
+from app.providers.apkpure_versions import WEB_DOWNLOAD_HEADERS
 from app.providers.base import AndroidPackageProvider
 
 
@@ -70,7 +71,8 @@ class APKPureProtoProvider(AndroidPackageProvider):
                     type=version.file_type,
                     name=version.file_name,
                     url=version.url,
-                    metadata={"asset.type": version.file_type.value},
+                    headers=WEB_DOWNLOAD_HEADERS,
+                    metadata={"asset.type": version.file_type.value, "download.fallback": "wget"},
                 )
             ],
         )

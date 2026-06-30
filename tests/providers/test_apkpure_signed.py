@@ -34,6 +34,8 @@ def test_latest_apk_success():
     assert package_file.url == "https://data.winudf.com/APK/fdroid.apk"
     assert package_file.size == 12426276
     assert package_file.sha1 == "f94c745d25f13de8bf39e702659c19b6d8ca95b7"
+    assert package_file.metadata["download.fallback"] == "wget"
+    assert "Chrome/" in package_file.headers["User-Agent"]
 
 
 @pytest.mark.parametrize(
