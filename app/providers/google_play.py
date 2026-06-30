@@ -79,7 +79,7 @@ class GooglePlayProvider(AndroidPackageProvider):
 
     def __init__(
         self,
-        priority: int = 90,
+        priority: int = 100,
         enabled: bool = True,
         timeout_seconds: float = 120.0,
         cache_dir: Path = Path("data/cache"),

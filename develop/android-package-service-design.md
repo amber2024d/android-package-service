@@ -152,13 +152,13 @@ android-package-service/
 默认优先级建议：
 
 ```text
-apkpure-signed -> google-play -> aptoide -> apkpure-proto -> apkpure-web
+google-play -> apkpure-signed -> aptoide -> apkpure-proto -> apkpure-web
 ```
 
 说明：
 
-- APKPure signed 最新版链路轻量且能直接给 APK/XAPK/APKS，优先尝试。
-- Google Play 更接近官方来源，但依赖 Aurora token 和 gpapi，放在 signed 之后。
+- Google Play 更接近官方来源，监控命中率最高，优先尝试。
+- APKPure signed 最新版链路轻量且能直接给 APK/XAPK/APKS，作为第一兜底。
 - Aptoide 对历史版本和 split 支持最好，是重要兜底。
 - APKPure signed/proto/web 三条路径互补，全部纳入 Provider。
 - Playwright 网页路径较重，默认关闭；部署或 smoke 按需启用，启用后放最低优先级。

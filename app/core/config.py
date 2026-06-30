@@ -32,8 +32,8 @@ class Settings(BaseSettings):
     provider_apkpure_web_enabled: bool = False
     provider_apkmirror_enabled: bool = False  # 二期深历史源，默认关，按需开
 
-    provider_apkpure_signed_priority: int = 100
-    provider_google_play_priority: int = 90
+    provider_google_play_priority: int = 100
+    provider_apkpure_signed_priority: int = 90
     provider_aptoide_priority: int = 80
     provider_apkpure_proto_priority: int = 70
     provider_apkpure_web_priority: int = 20

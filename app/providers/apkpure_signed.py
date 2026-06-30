@@ -32,7 +32,7 @@ class APKPureSignedProvider(AndroidPackageProvider):
 
     def __init__(
         self,
-        priority: int = 100,
+        priority: int = 90,
         enabled: bool = True,
         timeout_seconds: float = 120.0,
         hl: str = "en-US",

@@ -210,7 +210,7 @@ provider_apkmirror_enabled: bool = False        # 默认关，按需开
 provider_apkmirror_priority: int = 15           # 低于 apkpure-web(20)：作历史 fallback
 ```
 
-> **优先级理由**：最新版让位 apkpure-signed(100)/google-play(90)/aptoide(80)/proto(70)/apkpure-web(20)；
+> **优先级理由**：最新版让位 google-play(100)/apkpure-signed(90)/aptoide(80)/proto(70)/apkpure-web(20)；
 > 历史请求当上面的 web 源 `NOT_FOUND` 时，工厂 `_first_success` 自然落到 apkmirror(15)，命中它的深历史。
 
 ## 9. 缓存

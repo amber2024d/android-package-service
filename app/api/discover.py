@@ -11,8 +11,8 @@ discover_router = APIRouter()
 
 # 各来源的人读说明（与启用状态无关）；实际是否列出、优先级取自运行时已启用的 provider。
 _PROVIDER_DESCRIPTIONS = {
-    "apkpure-signed": "APKPure 签名 API，主力源",
-    "google-play": "Google Play（gpapi 匿名），官方产物",
+    "google-play": "Google Play（gpapi 匿名），官方主力源",
+    "apkpure-signed": "APKPure 签名 API",
     "aptoide": "Aptoide 商店",
     "apkpure-proto": "APKPure protobuf 接口",
     "apkpure-web": "APKPure 网页抓取",

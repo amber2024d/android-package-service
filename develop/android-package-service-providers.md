@@ -60,8 +60,8 @@ class ProviderFactory:
 
 | Provider | 默认优先级 | 配置默认启用 | 说明 |
 | --- | ---: | --- | --- |
-| `apkpure-signed` | 100 | 否 | APKPure signed JSON API |
-| `google-play` | 90 | 否 | Aurora dispenser + Python gpapi |
+| `google-play` | 100 | 否 | Aurora dispenser + Python gpapi |
+| `apkpure-signed` | 90 | 否 | APKPure signed JSON API |
 | `aptoide` | 80 | 否 | Aptoide V7 API |
 | `apkpure-proto` | 70 | 否 | APKPure protobuf API |
 | `apkpure-web` | 20 | 否 | APKPure 网页 + Playwright 兜底 |
@@ -388,10 +388,10 @@ CDN 链接，拿不到时回退 `d.apkpure.com/{apkid}`。原先「构造 `/b/{T
 providers:
   apkpure_signed:
     enabled: true
-    priority: 100
+    priority: 90
   google_play:
     enabled: true
-    priority: 90
+    priority: 100
     token_cache_ttl_seconds: 1800
   aptoide:
     enabled: true

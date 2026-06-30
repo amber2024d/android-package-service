@@ -199,6 +199,30 @@ def test_factory_registers_google_play_when_enabled(tmp_path):
     assert list(ProviderFactory(settings).providers) == ["google-play"]
 
 
+def test_factory_auto_order_prefers_google_play(tmp_path):
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        temp_dir=tmp_path / "tmp",
+        nas_mount_path=tmp_path / "nas",
+        provider_fake_enabled=False,
+        provider_fake_failing_enabled=False,
+        provider_apkpure_signed_enabled=True,
+        provider_google_play_enabled=True,
+        provider_aptoide_enabled=True,
+        provider_apkpure_proto_enabled=True,
+        provider_apkpure_web_enabled=True,
+        provider_apkmirror_enabled=False,
+    )
+
+    assert [provider.id for provider in ProviderFactory(settings).resolve(None)] == [
+        "google-play",
+        "apkpure-signed",
+        "aptoide",
+        "apkpure-proto",
+        "apkpure-web",
+    ]
+
+
 def _provider(tmp_path, download, details=None):
     provider = GooglePlayProvider(cache_dir=tmp_path / "cache")
     provider._api = _api_factory(_details() if details is None else details, download)

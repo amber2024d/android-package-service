@@ -48,7 +48,7 @@
 ### T005 Provider 默认优先级
 
 - 条件：所有 provider 启用
-- 预期：auto 顺序为 `apkpure-signed -> google-play -> aptoide -> apkpure-proto -> apkpure-web`
+- 预期：auto 顺序为 `google-play -> apkpure-signed -> aptoide -> apkpure-proto -> apkpure-web`
 
 ### T006 Provider fallback
 
