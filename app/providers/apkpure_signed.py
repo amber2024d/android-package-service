@@ -387,7 +387,7 @@ class APKPureSignedProvider(AndroidPackageProvider):
         params: dict[str, str] = {"provider": self.id}
         if version_code is not None:
             params["versionCode"] = str(version_code)
-        elif version_name:
+        if version_name:
             params["versionName"] = version_name
         return f"/api/v1/android/apps/{quote(package_name, safe='')}/download?{urlencode(params)}"
 

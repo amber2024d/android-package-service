@@ -242,11 +242,6 @@ def file_name(file_type: PackageFileType) -> str:
     return _FILE_TYPE_NAMES.get(file_type, "base.apk")
 
 
-def constructed_url(package_name: str, version_code: int, file_type: PackageFileType) -> str:
-    folder = {PackageFileType.BASE_APK: "APK", PackageFileType.XAPK: "XAPK", PackageFileType.APKS: "APKS"}[file_type]
-    return f"{CDN_BASE_URL}/b/{folder}/{quote(package_name, safe='')}?versionCode={version_code}"
-
-
 def _decode_apkid_package(apkid: str) -> str | None:
     """apkid 形如 ``b/XAPK/<base64>``，base64 解码后是 ``{package}_{versionCode}_{hash}``。"""
     parts = apkid.split("/")

@@ -159,6 +159,14 @@ def test_old_version_by_code_falls_back_to_web_catalog(monkeypatch):
     assert plan.files[0].url == "https://d.apkpure.com/custom/old.apk"
 
 
+def test_download_url_keeps_complete_version_reference():
+    provider = APKPureSignedProvider()
+
+    url = provider._download_url("org.fdroid.fdroid", version_code=1023052, version_name="1.23.2")
+
+    assert url.endswith("provider=apkpure-signed&versionCode=1023052&versionName=1.23.2")
+
+
 def test_specified_missing_version_maps_not_found():
     provider = APKPureSignedProvider()
     provider._request_json = _responder(_payload())
