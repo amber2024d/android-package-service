@@ -83,6 +83,7 @@ def test_download_split_xapk(tmp_path):
         manifest = json.loads(zip_file.read("manifest.json"))
     assert {"manifest.json", "base.apk", "config.arm64_v8a.apk"} <= names
     assert manifest["package_name"] == "com.oakever.arrows"
+    assert not (tmp_path / "tmp" / "xapk-build" / "fake" / "com.oakever.arrows" / "43").exists()
 
 
 def test_download_apks_keeps_extension(tmp_path):

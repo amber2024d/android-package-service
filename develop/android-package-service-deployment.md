@@ -128,7 +128,7 @@ volumes:
 - `./data` 保存 token cache、metadata、轻量状态，**以及版本目录 SQLite 库 `version-catalog.sqlite`
   （名↔号账本 + `download_jobs`，随使用累积、不可再生）**。这是**持久状态**不是缓存：容器重启/重建不会丢，
   但删除宿主机 `./data` 会清空账本和下载任务，运维需避免，并建议定期备份（见「存储目录」）。
-- `./tmp` 保存下载过程中的临时文件，可随时丢弃。
+- `./tmp` 保存下载过程中的临时文件，可随时丢弃；新生成的 `xapk-build` 打包目录会在单次打包结束后自动清理。
 - `nas_apks` 挂载 NAS，用来保存 APK/XAPK 这类大文件 artifact，避免占满服务器磁盘。
 - `NAS_PUBLIC_BASE_URL`：NAS 自带 HTTP 文件服务（nginx）对外前缀，其根须对应 `NAS_MOUNT_PATH` 根
   （如 `/mnt/nas/apks` ↔ `http://10.0.0.6:5003/android-packages`）。配置后 `/download` 改为 **302 重定向到
@@ -278,7 +278,7 @@ Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 
 ```text
 /app/data        持久状态：版本目录 SQLite 库、provider cache、metadata（宿主机 ./data，必须持久化）
-/app/tmp         下载中的 .part 文件、XAPK 打包临时目录（可丢弃）
+/app/tmp         下载中的 .part 文件、XAPK 打包临时目录（xapk-build 单次结束后自动清理，可丢弃）
 /mnt/nas/apks    最终 APK/XAPK artifact
 ```
 
@@ -390,6 +390,7 @@ location / {
 ```
 
 大游戏 XAPK 可能超过数 GB，最终 artifact 应写入 NAS。服务器本地磁盘主要承载临时文件和少量状态，仍需要给 `/app/tmp` 预留并发下载时的空间。
+`xapk-build` 会在单次打包结束后自动清理；磁盘峰值仍取决于并发下载的 `.part`、已下载源文件和正在打包的单个 XAPK。
 
 ## Smoke
 

@@ -45,6 +45,7 @@ tmp/
 - 下载文件先写入 `*.part`。
 - 校验成功后原子 rename。
 - 最终 APK/XAPK 写入 NAS artifact 目录。
+- `tmp/xapk-build` 只保存单次 XAPK 打包中间文件，打包结束后自动删除。
 - `metadata.json` 记录 provider、包名、版本、文件列表、hash、生成时间和 NAS 文件路径。
 - 已存在 artifact 时，先校验 metadata、文件大小、ZIP 头和可用 hash；通过后直接复用。
 - 已存在 XAPK/APKS 且包含 `manifest.json` 时，校验 `package_name`、`version_code`、`version_name` 中可用字段。

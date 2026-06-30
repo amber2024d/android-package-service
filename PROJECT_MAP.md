@@ -72,5 +72,5 @@
   Docker 下由宿主机 `./data` bind mount 到 `/app/data`，跨容器重启/重建保留；持久化与备份见[部署设计](develop/android-package-service-deployment.md)。放本地盘不放 NAS（WAL 不能跑 CIFS）。
 - `data/cache/aurora_token.json`：Google Play / Aurora 匿名 token 缓存。
 - `data/cache/google-play-data/`：gpapi 流式 data 的临时内部文件源缓存。
-- `tmp/`：下载 `.part` 和 XAPK 构建临时文件。
+- `tmp/`：下载 `.part` 和 XAPK 构建临时文件；`tmp/xapk-build` 单次打包结束后自动清理。
 - `NAS_MOUNT_PATH/artifacts/`：最终 APK/XAPK/APKS artifact；Docker 内固定为 `/mnt/nas/apks/artifacts`，按 `{provider}/{packageName}/{version}` 分类。
