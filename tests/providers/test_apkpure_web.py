@@ -55,6 +55,14 @@ def test_file_type_priority(raw_type, url, content_disposition, file_type, name)
     assert provider._file_name(resolved) == name
 
 
+def test_constructed_url_uses_page_file_type():
+    provider = APKPureWebProvider()
+
+    url = provider._constructed_url("org.fdroid.fdroid", 1023052, PackageFileType.XAPK)
+
+    assert url == "https://d.apkpure.com/b/XAPK/org.fdroid.fdroid?versionCode=1023052"
+
+
 def test_missing_detail_version_fields_maps_bad_response():
     provider = APKPureWebProvider()
 
@@ -91,7 +99,7 @@ def test_api_download_url_keeps_complete_version_reference():
     assert url.endswith("provider=apkpure-web&versionCode=1023052&versionName=1.23.2")
 
 
-def test_download_plan_fails_when_download_page_has_no_cdn():
+def test_constructed_download_url_when_download_page_has_no_cdn():
     provider = APKPureWebProvider()
     detail = provider._detail_from_html(
         _detail_html(file_type="APKS"),
@@ -100,11 +108,12 @@ def test_download_plan_fails_when_download_page_has_no_cdn():
     )
     provider._load_detail = _responder(detail)
     provider._load_html = _responder("<html></html>")
+    provider._head = _responder(None)
 
-    with pytest.raises(ProviderException) as exc:
-        _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid")))
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid")))
 
-    assert exc.value.provider_error.error == ErrorCode.BAD_RESPONSE
+    assert plan.files[0].type == PackageFileType.APKS
+    assert plan.files[0].url == "https://d.apkpure.com/b/APKS/org.fdroid.fdroid?versionCode=1023052"
 
 
 def test_historical_by_name_resolves_directly_without_enumeration(monkeypatch):

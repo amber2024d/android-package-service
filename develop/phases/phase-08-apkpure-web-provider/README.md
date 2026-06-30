@@ -66,10 +66,10 @@ Mobile API 失败时能通过网页拿到部分包下载链接
 - 已新增 `APKPureWebProvider`，默认仍按 `PROVIDER_APKPURE_WEB_ENABLED=false` 关闭，优先级保持 `20`。
 - 已接入 `ProviderFactory`，auto 顺序仍按配置优先级 fallback。
 - 已实现 APKPure 搜索页精确包名匹配、详情页应用名/版本/文件类型解析、下载页 CDN URL 提取。
-- 下载页必须解析出 APKPure 给出的 CDN URL；解析不到则返回 `BAD_RESPONSE`，不再本地按 `versionCode` 构造 CDN URL。
+- 下载页无 CDN 且有 `versionCode` 时，会按页面文件类型构造 `APK`、`XAPK` 或 `APKS` 下载 URL；页面类型缺失时才用 HEAD 探测三个候选。
 - 文件类型按页面字段、URL、`Content-Disposition` 判断，输出 `BASE_APK`、`XAPK` 或 `APKS`。
 - Playwright 页面加载失败和超时映射为标准 `ProviderError`，不会跳出 provider fallback。
-- 已补纯解析单测覆盖搜索匹配、详情字段、下载页 CDN、APKS 识别和缺字段 / 缺 CDN `BAD_RESPONSE`。
+- 已补纯解析单测覆盖搜索匹配、详情字段、下载页 CDN、构造 URL、APKS 识别和缺字段 `BAD_RESPONSE`。
 
 ## 本阶段不做
 

@@ -80,6 +80,13 @@ class APKPureWebProvider(AndroidPackageProvider):
         url = self._download_url_from_html(download_html)
         content_disposition = await self._content_disposition(url) if url else None
 
+        if not url and detail.version_code is not None:
+            file_type, url, content_disposition = await self._constructed_download(
+                detail.package_name,
+                detail.version_code,
+                detail.raw_file_type,
+            )
+
         if not url:
             self._fail(ErrorCode.BAD_RESPONSE, "APKPure web download url is missing.")
         file_type = self._file_type(detail.raw_file_type, url, content_disposition)
@@ -219,6 +226,24 @@ class APKPureWebProvider(AndroidPackageProvider):
             url, user_agent=self.user_agent, timeout_seconds=self.timeout_seconds, proxy=self.proxy
         )
 
+    async def _constructed_download(self, package_name: str, version_code: int, raw_type: str | None) -> tuple[PackageFileType, str, str | None]:
+        try:
+            candidates = [self._file_type(raw_type, None, None)]
+        except ProviderException:
+            candidates = [PackageFileType.BASE_APK, PackageFileType.XAPK, PackageFileType.APKS]
+
+        for file_type in candidates:
+            url = self._constructed_url(package_name, version_code, file_type)
+            head = await self._head(url)
+            if not head:
+                if raw_type:
+                    return file_type, url, None
+                continue
+            final_url, content_disposition = head
+            if self._file_type(raw_type, final_url, content_disposition) == file_type:
+                return file_type, url, content_disposition
+        self._fail(ErrorCode.BAD_RESPONSE, "APKPure web constructed download url is unavailable.")
+
     def _search_result_url(self, html: str, package_name: str) -> str:
         return apkpure_versions.search_result_url(html, self.base_url, package_name, provider_id=self.id)
 
@@ -258,6 +283,9 @@ class APKPureWebProvider(AndroidPackageProvider):
 
     def _file_type(self, raw_type: str | None, url: str | None, content_disposition: str | None) -> PackageFileType:
         return apkpure_versions.file_type_from(raw_type, url, content_disposition, provider_id=self.id)
+
+    def _constructed_url(self, package_name: str, version_code: int, file_type: PackageFileType) -> str:
+        return apkpure_versions.constructed_url(package_name, version_code, file_type)
 
     def _file_name(self, file_type: PackageFileType) -> str:
         return apkpure_versions.file_name(file_type)

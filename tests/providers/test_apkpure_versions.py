@@ -107,6 +107,13 @@ def test_file_type_from_raises_when_unknown():
     assert exc.value.provider_error.error == ErrorCode.BAD_RESPONSE
 
 
+def test_constructed_url_uses_cdn_base():
+    assert (
+        v.constructed_url("org.fdroid.fdroid", 1023052, PackageFileType.XAPK)
+        == "https://d.apkpure.com/b/XAPK/org.fdroid.fdroid?versionCode=1023052"
+    )
+
+
 def test_chromium_proxy_parsing():
     assert v.chromium_proxy(None) is None
     assert v.chromium_proxy("") is None
