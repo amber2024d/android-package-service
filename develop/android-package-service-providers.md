@@ -52,7 +52,8 @@ class ProviderFactory:
 
 - 指定 `provider` 时只调用对应 provider。
 - 未指定时按 `priority` 从高到低逐个尝试。
-- `NOT_FOUND`、`NETWORK_ERROR`、`BAD_RESPONSE`、`UNSUPPORTED` 继续尝试下一个 provider。
+- `NETWORK_ERROR` 对当前 provider 重试 3 次；仍失败后继续尝试下一个 provider。
+- `NOT_FOUND`、`BAD_RESPONSE`、`UNSUPPORTED` 继续尝试下一个 provider。
 - `AUTH_ERROR` 默认继续尝试下一个 provider；如果调用方强制指定该 provider，则直接返回错误。
 - 下载阶段如果发生 `VERIFY_FAILED`，继续尝试下一个 provider。
 

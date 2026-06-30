@@ -40,7 +40,8 @@
   下载层 `_expand_bundles` 把 `.apkm` 解包重建 `.xapk`（`info.json` 权威回填账本）。
 - `app/catalog/orchestrator.py`（阶段 12）：`DownloadOrchestrator`——`/download` 与 `/files`（`plan()`）的入口，用 `ledger`/`versions`
   补全 name↔code、优先级 fallback、把归一后的版本引用作下载锁 key 传给下载层（别名只下一次）。指定版本时**抓取前先探已有产物**
-  （`downloader.existing`，按 code/name 两种 version_key 各探一次），命中即复用、跳过整段 provider 抓取与重下。provider 仍各自按需自解析下载键。
+  （`downloader.existing`，按 code/name 两种 version_key 各探一次），命中即复用、跳过整段 provider 抓取与重下。`NETWORK_ERROR`
+  对当前 provider 重试 3 次后再 fallback；provider 仍各自按需自解析下载键。
 - `app/catalog/scheduler.py`（阶段 14）：`CatalogRefreshScheduler`——独立刷新进程入口
   （`python -m app.catalog.scheduler`），每 12h 对已跟踪包逐包强制增量、单包失败隔离；`scheduler_lock`
   仅防止误启多实例时重复刷新。

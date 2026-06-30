@@ -14,16 +14,17 @@ from app.domain.models import AndroidPackageRequest, DownloadPlan, PackageFile, 
 
 
 class FakeProvider:
-    def __init__(self, provider_id: str, *, fail: bool = False):
+    def __init__(self, provider_id: str, *, fail: bool = False, fail_times: int = 0):
         self.id = provider_id
         self.priority = 0
         self.enabled = True
         self.fail = fail
+        self.fail_times = fail_times
         self.seen: list[AndroidPackageRequest] = []
 
     async def get_download_plan(self, request: AndroidPackageRequest) -> DownloadPlan:
         self.seen.append(request)
-        if self.fail:
+        if self.fail or len(self.seen) <= self.fail_times:
             raise ProviderException(ProviderError(provider=self.id, error=ErrorCode.NETWORK_ERROR, message="boom"))
         return DownloadPlan(
             package_name=request.package_name,
@@ -196,7 +197,21 @@ def test_fallback_to_next_provider(tmp_path):
     assert "p_latest" in str(artifact)
     assert hit_provider == "b"  # fallback 后实际命中第二个源
     assert downloader.calls[0][0].provider == "b"
-    assert first.seen and second.seen  # 第一个失败后继续到第二个
+    assert len(first.seen) == 4  # 第一个源 NETWORK_ERROR 重试 3 次后再换源
+    assert second.seen  # 第一个失败后继续到第二个
+
+
+def test_retries_network_error_three_times_before_success(tmp_path):
+    store = _store(tmp_path)
+    provider, downloader = FakeProvider("a", fail_times=3), FakeDownloader()
+    orch = DownloadOrchestrator(store, FakeFactory([provider]), downloader)
+
+    artifact, hit_provider = asyncio.run(orch.download(AndroidPackageRequest(package_name="p")))
+
+    assert "p_latest" in str(artifact)
+    assert hit_provider == "a"
+    assert len(provider.seen) == 4  # 初次失败 + 3 次 NETWORK_ERROR 重试
+    assert downloader.calls[0][0].provider == "a"
 
 
 def test_all_providers_fail_raises_aggregate(tmp_path):

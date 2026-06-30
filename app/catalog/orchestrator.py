@@ -5,12 +5,13 @@ from sqlite3 import Connection
 
 from app.catalog.store import CatalogStore
 from app.core.logging import log_event
-from app.domain.errors import AggregateProviderError, ProviderError, ProviderException
+from app.domain.errors import AggregateProviderError, ErrorCode, ProviderError, ProviderException
 from app.domain.models import AndroidPackageRequest, DownloadPlan
 from app.download.downloader import PackageDownloader
 from app.providers.factory import ProviderFactory
 
 logger = logging.getLogger(__name__)
+NETWORK_ERROR_RETRIES = 3
 
 
 class DownloadOrchestrator:
@@ -55,24 +56,41 @@ class DownloadOrchestrator:
                 # 命中已下产物：跳过 provider 抓取与重下，直接复用（决策①②）。
                 self._log_reuse(completed, provider.id, cached, request_id)
                 return cached, provider.id
-            try:
-                plan = await provider.get_download_plan(completed)
-                artifact = await self.downloader.download(plan, request_id=request_id, lock_version_key=lock_version_key)
-                log_event(
-                    logger,
-                    "download_ok",
-                    request_id=request_id,
-                    package_name=plan.package_name,
-                    version_code=plan.version_code,
-                    version_name=plan.version_name,
-                    provider=plan.provider,
-                    upstream_status="ok",
-                    artifact_path=str(artifact),
-                )
-                return artifact, plan.provider
-            except ProviderException as exc:
-                errors.append(exc.provider_error)
-                self._log_failures(completed, [exc.provider_error], request_id)
+            for retry in range(NETWORK_ERROR_RETRIES + 1):
+                try:
+                    plan = await provider.get_download_plan(completed)
+                    artifact = await self.downloader.download(plan, request_id=request_id, lock_version_key=lock_version_key)
+                    log_event(
+                        logger,
+                        "download_ok",
+                        request_id=request_id,
+                        package_name=plan.package_name,
+                        version_code=plan.version_code,
+                        version_name=plan.version_name,
+                        provider=plan.provider,
+                        upstream_status="ok",
+                        artifact_path=str(artifact),
+                    )
+                    return artifact, plan.provider
+                except ProviderException as exc:
+                    if exc.provider_error.error == ErrorCode.NETWORK_ERROR and retry < NETWORK_ERROR_RETRIES:
+                        log_event(
+                            logger,
+                            "provider_retry",
+                            request_id=request_id,
+                            package_name=completed.package_name,
+                            version_code=completed.version_code,
+                            version_name=completed.version_name,
+                            provider=provider.id,
+                            upstream_status=ErrorCode.NETWORK_ERROR.value,
+                            retry=retry + 1,
+                            max_retries=NETWORK_ERROR_RETRIES,
+                            message=exc.provider_error.message,
+                        )
+                        continue
+                    errors.append(exc.provider_error)
+                    self._log_failures(completed, [exc.provider_error], request_id)
+                    break
         raise AggregateProviderError(errors)
 
     def existing(self, request: AndroidPackageRequest) -> Path | None:

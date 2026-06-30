@@ -53,7 +53,7 @@
 ### T006 Provider fallback
 
 - 条件：前一个 fake provider 返回 `NETWORK_ERROR`，后一个 fake provider 成功
-- 预期：接口成功返回后一个 provider；`providerErrors` 保留前一个错误
+- 预期：前一个 provider 先重试 3 次，仍失败后接口成功返回后一个 provider；`providerErrors` 保留前一个最终错误
 
 ### T007 强制 provider 不 fallback
 
