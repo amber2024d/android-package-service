@@ -23,6 +23,7 @@ class DownloadJob:
     request: AndroidPackageRequest
     status: str
     artifact_path: Path | None = None
+    succeeded_provider: str | None = None
     error: str | None = None
     provider_errors: list[ProviderError] | None = None
     request_id: str | None = None
@@ -111,13 +112,15 @@ class DownloadJobStore:
                 conn.execute("ROLLBACK")
                 raise
 
-    def mark_succeeded(self, job_id: str, artifact: Path) -> None:
+    def mark_succeeded(self, job_id: str, artifact: Path, provider: str | None = None) -> None:
+        # provider = 本次下载实际命中的来源（编排器 fallback 后的最终源），直接落库，
+        # 监控面板据此还原成功卡的「命中来源」，不再依赖 artifact_path 路径解析。
         now = self._now()
         with closing(self.store.connect()) as conn:
             conn.execute(
-                "UPDATE download_jobs SET status = ?, artifact_path = ?, error = NULL, provider_errors = NULL, "
-                "lease_expires = NULL, updated_at = ?, finished_at = ? WHERE id = ?",
-                (SUCCEEDED, str(artifact), now, now, job_id),
+                "UPDATE download_jobs SET status = ?, artifact_path = ?, succeeded_provider = ?, error = NULL, "
+                "provider_errors = NULL, lease_expires = NULL, updated_at = ?, finished_at = ? WHERE id = ?",
+                (SUCCEEDED, str(artifact), provider, now, now, job_id),
             )
 
     def mark_failed(self, job_id: str, message: str, provider_errors: list[ProviderError] | None = None) -> None:
@@ -166,6 +169,7 @@ class DownloadJobStore:
             ),
             status=row["status"],
             artifact_path=Path(row["artifact_path"]) if row["artifact_path"] else None,
+            succeeded_provider=row["succeeded_provider"],
             error=row["error"],
             provider_errors=provider_errors,
             request_id=row["request_id"],

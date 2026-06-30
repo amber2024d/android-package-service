@@ -13,7 +13,7 @@
 - `app/api/`：请求解析、错误响应、文件响应；不写 provider 特例和下载细节。`/apps/{pkg}/versions`（阶段 13）
   走版本目录只出 downloadable；`/download` 只探 artifact 复用，未命中写 `download_jobs` 返回 202，由独立 worker 下载。
   `monitor.py` 是只读监控聚合层：`MonitorService` 从 SQLite（download_jobs/versions/version_sources/ledger/collection_state）
-  聚合任务状态、provider 流转（成功来源读 artifact_path、失败链读 provider_errors）、近 N 天耗时与成功率、收录规模，
+  聚合任务状态、provider 流转（成功来源优先读 `succeeded_provider` 列、老库回退 artifact_path 解析，失败链读 provider_errors）、近 N 天耗时与成功率、收录规模，
   供 `/dashboard` 单页前端轮询；纯读、无副作用、不触发采集/下载。`/dashboard` 是深色「监控指挥台」（仪表盘 hero + ECharts 图表 +
   可切浅色），图表库 `app/api/echarts.min.js` 本地随服务分发（内网无 CDN），经 `/dashboard/echarts.min.js` 路由静态供给。
   配了 `NAS_PUBLIC_BASE_URL` 时产物就绪后 302 重定向到 NAS nginx 直链（`nas_public_url`）；留空则 `FileResponse` 流式返回。

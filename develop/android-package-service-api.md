@@ -273,7 +273,7 @@ days 可选，int，统计窗口天数，默认 7，范围 1–90（影响 provi
 
 说明：
 
-- 任务「命中来源」`succeededProvider` 从 `artifact_path` 的 `artifacts/{provider}/...` 段还原（job 行只记请求时的 preferred provider）；失败「流转链」`providerErrors` 按 auto fallback 的尝试顺序排列。
+- 任务「命中来源」`succeededProvider` 优先读 `download_jobs.succeeded_provider` 列（下载 worker 落库的最终命中源，含 auto fallback 后实际成功的源）；老库该列为 NULL 时回退从 `artifact_path` 的 `artifacts/{provider}/...` 段还原（`provider` 列只记请求时的 preferred provider）。失败「流转链」`providerErrors` 按 auto fallback 的尝试顺序排列。
 - `overview.jobs` 是全表累计计数；`analytics` / `providers` 是「最近 days 个自然日（UTC）」窗口内的统计，二者口径不同。
 - `days` 的窗口下界对齐到自然日 00:00，保证每日柱状加总恒等于窗口总数。
 

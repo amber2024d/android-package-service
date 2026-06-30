@@ -151,9 +151,10 @@ def test_reuses_existing_artifact_and_skips_provider(tmp_path):
     downloader = FakeDownloader(existing=lambda plan: Path("/artifacts/cached.apk"))
     orch = DownloadOrchestrator(store, FakeFactory([provider]), downloader)
 
-    artifact = asyncio.run(orch.download(AndroidPackageRequest(package_name="p", version_name="1.2.1")))
+    artifact, hit_provider = asyncio.run(orch.download(AndroidPackageRequest(package_name="p", version_name="1.2.1")))
 
     assert str(artifact) == "/artifacts/cached.apk"
+    assert hit_provider == "apkpure-signed"  # 复用产物所属源即命中来源
     assert provider.seen == []  # 没跑 provider 抓取
     assert downloader.calls == []  # 没真下载
 
@@ -165,9 +166,10 @@ def test_reuse_probes_both_code_and_name_keys(tmp_path):
     downloader = FakeDownloader(existing=lambda plan: Path("/a/x.apk") if plan.version_key == "1.2.1" else None)
     orch = DownloadOrchestrator(store, FakeFactory([provider]), downloader)
 
-    artifact = asyncio.run(orch.download(AndroidPackageRequest(package_name="p", version_code=116)))
+    artifact, hit_provider = asyncio.run(orch.download(AndroidPackageRequest(package_name="p", version_code=116)))
 
     assert str(artifact) == "/a/x.apk"
+    assert hit_provider == "apkpure-signed"
     assert downloader.probed == ["116", "1.2.1"]  # code、name 两种 key 各探一次
     assert provider.seen == []
 
@@ -190,8 +192,9 @@ def test_fallback_to_next_provider(tmp_path):
     first, second, downloader = FakeProvider("a", fail=True), FakeProvider("b"), FakeDownloader()
     orch = DownloadOrchestrator(store, FakeFactory([first, second]), downloader)
 
-    artifact = asyncio.run(orch.download(AndroidPackageRequest(package_name="p")))
+    artifact, hit_provider = asyncio.run(orch.download(AndroidPackageRequest(package_name="p")))
     assert "p_latest" in str(artifact)
+    assert hit_provider == "b"  # fallback 后实际命中第二个源
     assert downloader.calls[0][0].provider == "b"
     assert first.seen and second.seen  # 第一个失败后继续到第二个
 

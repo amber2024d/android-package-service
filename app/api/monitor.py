@@ -5,7 +5,8 @@
 
 - 纯读：不写任何表，不触发采集/下载，可安全高频轮询。
 - 经 `CatalogStore` 访问：实例化即幂等建表，老库缺 `download_jobs` 也会补上（返回空任务而非报错）。
-- 成功任务的「命中来源」从 `artifact_path` 的 `artifacts/{provider}/...` 段还原（job 行只记请求时的 preferred provider）；
+- 成功任务的「命中来源」优先读 `succeeded_provider` 列（下载 worker 直接落库的最终命中源）；
+  老库该列为 NULL 时回退到 `artifact_path` 的 `artifacts/{provider}/...` 段还原。
   失败任务的「provider 流转链」直接读 `provider_errors`（按 auto fallback 的尝试顺序）。
 - 时间戳统一是 `datetime.now(UTC).isoformat()`，UTC ISO-8601 可按字符串比较窗口下界。
 """
@@ -172,7 +173,7 @@ class MonitorService:
             "versionCode": row["version_code"],
             "versionName": row["version_name"],
             "requestedProvider": row["provider"],
-            "succeededProvider": self._provider_from_artifact(row["artifact_path"]),
+            "succeededProvider": self._hit_provider(row),
             "status": status,
             "worker": row["worker"],
             "error": row["error"],
@@ -199,7 +200,7 @@ class MonitorService:
 
         for row in window_jobs:
             if row["status"] == SUCCEEDED:
-                provider = self._provider_from_artifact(row["artifact_path"])
+                provider = self._hit_provider(row)
                 if provider:
                     ensure(provider)["successes"] += 1
             elif row["status"] == FAILED:
@@ -251,10 +252,14 @@ class MonitorService:
         start_day = now.date() - timedelta(days=days - 1)
         cutoff = datetime(start_day.year, start_day.month, start_day.day, tzinfo=now.tzinfo).isoformat()
         return conn.execute(
-            "SELECT status, artifact_path, provider_errors, package, created_at, started_at, finished_at "
+            "SELECT status, succeeded_provider, artifact_path, provider_errors, package, created_at, started_at, finished_at "
             "FROM download_jobs WHERE created_at >= ?",
             (cutoff,),
         ).fetchall()
+
+    def _hit_provider(self, row: sqlite3.Row) -> str | None:
+        """成功任务的命中来源：优先 `succeeded_provider` 列（worker 落库），老库 NULL 时回退按 artifact 路径解析。"""
+        return row["succeeded_provider"] or self._provider_from_artifact(row["artifact_path"])
 
     def _provider_from_artifact(self, path_str: str | None) -> str | None:
         """从 artifact 路径还原命中来源：`.../artifacts/{provider}/{package}/{version}/file` 的 provider 段。"""

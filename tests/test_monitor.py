@@ -22,7 +22,7 @@ def _service(store: CatalogStore, tmp_path) -> MonitorService:
 def _insert_job(store: CatalogStore, **kw) -> None:
     cols = (
         "id", "request_key", "package", "version_code", "version_name", "provider",
-        "status", "artifact_path", "error", "provider_errors", "worker",
+        "status", "artifact_path", "succeeded_provider", "error", "provider_errors", "worker",
         "created_at", "updated_at", "started_at", "finished_at",
     )
     row = {c: kw.get(c) for c in cols}
@@ -136,6 +136,40 @@ def test_providers_flow_within_window(tmp_path):
     assert items["google-play"]["errors"] == {"NETWORK_ERROR": 1}
     # 窗口外的 aptoide 成功不计入
     assert "aptoide" not in items
+
+
+def test_succeeded_provider_column_preferred_over_artifact(tmp_path):
+    # succeeded_provider 落库为 google-play，但 artifact 落在 apkpure-signed 目录：命中来源以列为准，路径解析不参与。
+    store = _store(tmp_path)
+    _insert_job(
+        store, id="col", package="com.a", version_code=100, status="succeeded",
+        succeeded_provider="google-play",
+        artifact_path=_artifact(tmp_path, "apkpure-signed"),
+        started_at=_iso(seconds=20), finished_at=_iso(seconds=10),
+    )
+    snap = _service(store, tmp_path).snapshot(days=7)
+
+    job = next(j for j in snap["tasks"]["recentSucceeded"] if j["id"] == "col")
+    assert job["succeededProvider"] == "google-play"
+    items = {i["provider"]: i for i in snap["providers"]["items"]}
+    assert items["google-play"]["successes"] == 1
+    assert "apkpure-signed" not in items
+
+
+def test_succeeded_provider_falls_back_to_artifact_when_null(tmp_path):
+    # 老库（succeeded_provider 为 NULL）：回退按 artifact 路径段还原命中来源。
+    store = _store(tmp_path)
+    _insert_job(
+        store, id="legacy", package="com.a", version_code=100, status="succeeded",
+        artifact_path=_artifact(tmp_path, "aptoide"),
+        started_at=_iso(seconds=20), finished_at=_iso(seconds=10),
+    )
+    snap = _service(store, tmp_path).snapshot(days=7)
+
+    job = next(j for j in snap["tasks"]["recentSucceeded"] if j["id"] == "legacy")
+    assert job["succeededProvider"] == "aptoide"
+    items = {i["provider"]: i for i in snap["providers"]["items"]}
+    assert items["aptoide"]["successes"] == 1
 
 
 def test_analytics_totals_duration_daily(tmp_path):

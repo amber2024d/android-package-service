@@ -46,7 +46,7 @@ class CatalogArchiver:
         request_id = f"archive:{package}:{version_name}"
         for attempt in range(self.max_retries + 1):
             try:
-                artifact = await orchestrator.download(request, request_id=request_id)
+                artifact, _ = await orchestrator.download(request, request_id=request_id)
                 log_event(
                     logger,
                     "archive_ok",

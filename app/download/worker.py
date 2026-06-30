@@ -67,8 +67,8 @@ class DownloadWorker:
             provider=job.request.preferred_provider,
         )
         try:
-            artifact = await orchestrator.download(job.request, request_id=job.request_id)
-            self.jobs.mark_succeeded(job.id, artifact)
+            artifact, provider = await orchestrator.download(job.request, request_id=job.request_id)
+            self.jobs.mark_succeeded(job.id, artifact, provider)
             log_event(
                 logger,
                 "download_job_succeeded",
@@ -76,6 +76,7 @@ class DownloadWorker:
                 worker_id=worker_id,
                 request_id=job.request_id,
                 package_name=job.request.package_name,
+                provider=provider,
                 artifact_path=str(artifact),
             )
         except AggregateProviderError as exc:

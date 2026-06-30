@@ -183,7 +183,7 @@ async def download_app(
         _spawn_background(catalog.ensure_collected(package_name, need_history=True))
     if not settings.download_async_enabled:
         try:
-            artifact = await orchestrator.download(request, request_id=request_id)
+            artifact, _ = await orchestrator.download(request, request_id=request_id)
         except AggregateProviderError as exc:
             return error_response(exc)
         return artifact_response(settings, artifact)

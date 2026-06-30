@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS download_jobs (
     provider TEXT,
     status TEXT NOT NULL,
     artifact_path TEXT,
+    succeeded_provider TEXT,
     error TEXT,
     provider_errors TEXT,
     request_id TEXT,
@@ -87,6 +88,8 @@ ON download_jobs(request_key) WHERE status IN ('queued', 'running');
 
 # 阶段 10 建的旧库 collection_state 没有租约列；幂等补列，不丢数据。
 _COLLECTION_STATE_LEASE_COLUMNS = ("collecting_owner", "collecting_since", "lease_expires")
+# 监控落库前建的旧库 download_jobs 没有「命中来源」列；幂等补列，老任务该列为 NULL（监控回退按 artifact_path 解析）。
+_DOWNLOAD_JOBS_COLUMNS = ("succeeded_provider",)
 
 
 class CatalogStore:
@@ -142,6 +145,10 @@ class CatalogStore:
         for column in _COLLECTION_STATE_LEASE_COLUMNS:
             if column not in existing:
                 conn.execute(f"ALTER TABLE collection_state ADD COLUMN {column} TEXT")
+        job_columns = {row[1] for row in conn.execute("PRAGMA table_info(download_jobs)")}
+        for column in _DOWNLOAD_JOBS_COLUMNS:
+            if column not in job_columns:
+                conn.execute(f"ALTER TABLE download_jobs ADD COLUMN {column} TEXT")
 
     def write_lock(self, package: str) -> asyncio.Lock:
         key = (str(self.db_path), package)

@@ -35,7 +35,9 @@ class DownloadOrchestrator:
         completed = self._complete(request)
         return await self.factory.get_download_plan(completed, request_id=request_id)
 
-    async def download(self, request: AndroidPackageRequest, request_id: str | None = None) -> Path:
+    async def download(self, request: AndroidPackageRequest, request_id: str | None = None) -> tuple[Path, str]:
+        """返回 (artifact, 命中 provider)。命中 provider = 复用产物所属源或 fallback 后实际下载成功的源，
+        供下载 worker 直接落库（监控的「命中来源」据此还原，不再靠 artifact 路径解析）。"""
         completed = self._complete(request)
         lock_version_key = (
             str(completed.version_code) if completed.version_code is not None else completed.version_name
@@ -52,7 +54,7 @@ class DownloadOrchestrator:
             if cached is not None:
                 # 命中已下产物：跳过 provider 抓取与重下，直接复用（决策①②）。
                 self._log_reuse(completed, provider.id, cached, request_id)
-                return cached
+                return cached, provider.id
             try:
                 plan = await provider.get_download_plan(completed)
                 artifact = await self.downloader.download(plan, request_id=request_id, lock_version_key=lock_version_key)
@@ -67,7 +69,7 @@ class DownloadOrchestrator:
                     upstream_status="ok",
                     artifact_path=str(artifact),
                 )
-                return artifact
+                return artifact, plan.provider
             except ProviderException as exc:
                 errors.append(exc.provider_error)
                 self._log_failures(completed, [exc.provider_error], request_id)

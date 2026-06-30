@@ -25,6 +25,8 @@ def test_download_queues_job_and_worker_serves_file(tmp_path):
     job = worker.jobs.claim_next("test")
     assert job is not None
     asyncio.run(worker.run_job(job))
+    # 命中 provider 端到端落库（真实编排器返回 plan.provider）
+    assert worker.jobs.get(job.id).succeeded_provider == "fake"
 
     status = client.get(body["statusUrl"].replace("http://testserver", ""))
     assert status.status_code == 200
