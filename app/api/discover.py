@@ -80,7 +80,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
             "provider": "上游来源。默认 auto：服务端按 priority 从大到小依次尝试并自动 fallback，首个成功即返回；可用 ?provider=<id> 强制指定单一来源（该源失败即报错，不再 fallback）。可用 id 见 providers 段。",
             "artifact_types": "产物有三类：APK（单文件，Content-Type application/vnd.android.package-archive）；XAPK / APKS（ZIP 容器，application/zip，内含 base.apk + split 配置 APK +（可选）OBB）。带 split/obb 的应用会被打包为 XAPK 后返回。",
             "version_catalog": "多源聚合的版本目录，统一枚举每个包的「可下载」（downloadable）版本。/versions 首次访问会阻塞采集一次再返回，之后直接读库；新鲜度由服务端后台定时刷新维护。",
-            "download_semantics": "/download 命中已有 artifact 时直接返回文件流/302；未命中时返回 202 JSON 并创建下载任务，由独立 worker 下载、解压/打包和校验。调用方轮询 statusUrl，成功后访问 fileUrl 取文件。指定版本时会在后台异步补采版本目录，不阻塞入队响应。",
+            "download_semantics": "/download 命中已有 artifact 时直接返回文件流/302；未命中时返回 202 JSON 并创建下载任务，由独立 worker 下载、解压/打包和校验。调用方轮询 statusUrl，成功后访问 fileUrl 取文件。指定版本时会在后台异步补采版本目录，不阻塞入队响应。服务运行在抢占式实例上，请求/轮询遇到 5xx 或连接失败时按 reliability.client_retry 退避重试；下载任务幂等，实例被回收也会在新实例续下、不丢任务。",
         },
         "endpoints": {
             "apps": {
@@ -249,13 +249,24 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "DOWNLOAD_CONNECT_TIMEOUT_SECONDS": {"default": "60", "description": "下载连接超时（秒）"},
                 "DOWNLOAD_ASYNC_ENABLED": {"default": "true", "description": "下载未命中缓存时是否入队交给独立 worker"},
                 "DOWNLOAD_JOB_POLL_SECONDS": {"default": "2", "description": "下载 worker 空闲轮询间隔（秒）"},
-                "DOWNLOAD_JOB_LEASE_SECONDS": {"default": "3600", "description": "下载任务运行租约（秒），worker 执行时续租，崩溃后超时可重抢"},
+                "DOWNLOAD_JOB_LEASE_SECONDS": {"default": "3600", "description": "下载任务运行租约（秒），worker 执行时续租，崩溃/被回收后超时可重抢；抢占式（Spot）云部署覆盖为 600 以更快重抢"},
                 "DOWNLOAD_WORKER_CONCURRENCY": {"default": "4", "description": "单个下载 worker 容器内并发执行的下载任务数"},
                 "CATALOG_REFRESH_ENABLED": {"default": "true", "description": "版本目录后台定时刷新开关"},
                 "CATALOG_REFRESH_INTERVAL_HOURS": {"default": "12", "description": "定时刷新间隔（小时）"},
                 "ARCHIVE_ENABLED": {"default": "false", "description": "主动归档：发现新版本即自动下载入 NAS（默认关）"},
                 "UPSTREAM_PROXY": {"default": "", "description": "APKPure / Google Play 系上游代理（HTTP/HTTPS，含鉴权，不支持 SOCKS5）"},
             },
+        },
+        "reliability": {
+            "description": "本服务部署在抢占式实例（AWS Spot）上，实例可能被随时回收；回收后由自动伸缩组拉起新实例并从对象存储恢复状态，中间有约 1–几分钟的恢复窗口不可用。调用方务必实现退避重试。",
+            "deployment": "抢占式实例；恢复由基础设施自动完成，是时间驱动而非请求驱动——重试请求不会触发或加速开机，只需带退避重试直到服务恢复。",
+            "client_retry": {
+                "when": "遇到连接失败/重置、请求超时，以及 502/503/504（多为实例回收或恢复窗口所致，非请求本身错误）时重试。",
+                "strategy": "指数退避 + 抖动（jitter）。建议初始 1s、每次 ×2、单次上限 30–60s、总重试时长容忍到数分钟；不要用固定短间隔猛刷。",
+                "idempotent": "所有 GET 接口可安全重试。",
+                "do_not_retry": "4xx（除 408/429）是请求本身的问题、不应重试：401 检查/更换 API Key，404 确认包名/版本；429/408 按上面退避重试。",
+            },
+            "downloads_are_resumable": "下载是异步任务（/download 返回 202 + jobId，真正下载在后台 worker 带租约执行）。实例被回收时未完成的任务会被新实例 worker 自动重抢重下，已上传对象存储的产物直接复用。按 poll_download_job 轮询 statusUrl：恢复窗口内轮询失败就退避重试，恢复后继续轮询直到 succeeded——因实例回收丢的任务不会真失败、最终会完成。注意区分：若任务本身 status=failed（error/providerErrors 非空），那是应用层失败（上游源不可用、校验失败等），不是实例回收所致，重试同样请求也无法自愈，需诊断或换 provider。",
         },
         "workflows": {
             "query_latest_info": {
@@ -334,6 +345,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                     "2. GET statusUrl，直到 status 变为 succeeded 或 failed",
                     "3. succeeded 时读取 fileUrl 并下载；failed 时展示 error/providerErrors",
                     "4. fileUrl 在任务未完成前会返回 409 NOT_READY",
+                    "5. 轮询/下载遇到 5xx 或连接失败（实例回收/恢复窗口）时按指数退避重试、不要放弃——任务会在新实例续下，最终 succeeded",
                 ],
                 "example_curl": f"curl '{base_url}/api/v1/android/downloads/{{jobId}}'",
             },

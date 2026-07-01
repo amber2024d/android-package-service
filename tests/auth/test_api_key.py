@@ -59,6 +59,9 @@ def test_discover_public_and_reports_api_key(auth_client):
     assert body["auth"]["type"] == "api_key"
     assert body["endpoints"]["apps"]["get_info"]["auth"] == "api_key"
     assert body["endpoints"]["system"]["monitor_snapshot"]["auth"] == "session_or_api_key"
+    # 抢占式部署下的退避重试指引
+    assert body["reliability"]["client_retry"]["strategy"]
+    assert "downloads_are_resumable" in body["reliability"]
 
 
 def test_snapshot_accepts_session_or_api_key(auth_client):
