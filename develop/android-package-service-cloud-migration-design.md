@@ -269,21 +269,26 @@ s3_secret_access_key: str | None = None
 
 ### §5.1 云上 Compose 变体
 
-新增 [docker-compose.cloud.yml](../docker-compose.cloud.yml)（叠加在 `docker-compose.yml` 上或独立完整文件，见 §6 决策），改动：
-- **去掉 `nas_apks` CIFS 卷**及三服务的 `- nas_apks:/mnt/nas/apks` 挂载。
-- `./data`、`./tmp` 由宿主目录映射改为 **docker 命名卷**（`app_data`、`app_tmp`；VM 上持久、可备份），避免依赖宿主机相对路径。
-- 三服务共享 `&app_environment` 增加：`STORAGE_BACKEND`、桶/凭证、`AUTH_ENABLED` 等（`FEISHU_*`、`S3_*`/`GCS_*` 从 `.env` 注入）。
-- 去掉 `NAS_MOUNT_PATH`/`NAS_*`（对象后端不再用）；`NAS_PUBLIC_BASE_URL` 保留但云上留空。
-- GCS 凭证经 secret 卷或 `GCS_CREDENTIALS_JSON` 挂载。
+**最终目标：AWS Spot 抢占式实例 + S3。** 新增 [docker-compose.cloud.yml](../docker-compose.cloud.yml)，**叠加**在 `docker-compose.yml` 上（§6.5），改动：
+- 三服务 `volumes` 按挂载目标覆盖 base：`app_data:/app/data`、`app_tmp:/app/tmp`（docker 命名卷），`/mnt/nas/apks` → **tmpfs**（对象存储不用本地 artifacts 目录）。base 的 `nas_apks`(CIFS) 无服务引用、compose 合并时剪除，无 CIFS 挂载。`NAS_MOUNT_PATH` 沿用（指向 tmpfs，仅承载启动写探测）。
+- 三服务 `environment` 增补：`STORAGE_BACKEND=s3` + `S3_*`、`AUTH_ENABLED`/`FEISHU_*`、`DOWNLOAD_JOB_LEASE_SECONDS` 等，从 `.env.cloud` 注入。
+- 新增 **`litestream` 边车**（§5.3）把 SQLite 复制到 S3；三应用服务 `depends_on: litestream (service_healthy)` 先恢复后启动。
 - 启动：`docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d`。
 
 ### §5.2 env 模板
 
 新增 `.env.cloud.example`：`APP_ENV=production`、`PUBLIC_BASE_URL=https://<域名>`、`AUTH_ENABLED=true`、`FEISHU_*`、`STORAGE_BACKEND=gcs|s3` + 对应桶/凭证、`SIGNED_URL_TTL_SECONDS`，去掉 NAS 段。
 
-### §5.3 SQLite 持久化
+### §5.3 SQLite 持久化（AWS Spot：Litestream → S3）
 
-`version-catalog.sqlite`（名↔号账本，不可再生）+ `auth.sqlite`（管理员/Key）必须持久化：VM 单机用 **docker 命名卷 `app_data`** 承载 `/app/data`，随容器重建保留。WAL 仍在本地卷（不放对象存储）。备份：定期快照卷 / `sqlite3 .backup`。
+**最终部署为 AWS Spot 抢占式实例**——机器随时被回收、连本地盘一起没，docker 命名卷不跨回收存活。产物已在 S3（§4）不丢；但 `auth.sqlite`（**API Key/管理员，丢了所有调用方全断**）+ `version-catalog.sqlite`（名↔号账本/目录/download_jobs）落本地 SQLite，必须做跨回收持久化。
+
+方案：**Litestream 把两个库持续增量复制到 S3**（同桶 `litestream/` 前缀，与产物 `artifacts/` 分开），容器启动时先从 S3 恢复。保持 SQLite 不迁库（RDS/Dynamo 属非目标），被 terminate/换新机也能秒级恢复。
+
+- `docker-compose.cloud.yml` 加 `litestream` 边车：mount 共享 `app_data` 卷 + `deploy/litestream.yml`；entrypoint 先 `litestream restore -if-db-not-exists -if-replica-exists` 两个库，再 `litestream replicate`；healthcheck 探 restore 完成标记。
+- 三应用服务 `depends_on: litestream (condition: service_healthy)`——**先恢复后放行**，避免抢在 restore 前建出空库覆盖 S3 备份。
+- 凭证走实例 IAM 角色（app boto3 与 litestream 同走 AWS 默认凭证链；容器需 IMDS hop-limit=2）。
+- WAL 仍在本地卷（Litestream 要求 WAL）；`app_data` 命名卷被 Spot 回收也没关系，靠 S3 恢复。
 
 ### §5.4 反向代理 / HTTPS / redirect_uri
 
@@ -291,6 +296,15 @@ s3_secret_access_key: str | None = None
 - `PUBLIC_BASE_URL` 必须是**外部可达的 https 地址**——它同时决定飞书 `redirect_uri`（`/auth/callback`）与下载任务返回的 `statusUrl`/`fileUrl`。飞书开放平台重定向 URL 须登记一致。
 - 生产会话 cookie 加 `Secure`（依 `APP_ENV=production`）。
 - 大包下发已卸载到对象存储 signed URL，反代不承载大流量。
+
+### §5.5 AWS Spot 中断适配
+
+除持久化（§5.3）外，抢占式还需：
+
+- **下载租约调小**：`DOWNLOAD_JOB_LEASE_SECONDS` 云上默认 `600`——Spot 被抢时 running 的 job 最多 ~10min（而非默认 1h）就被新机重抢重下。worker 心跳按 lease/3 续租，正常长下载不受影响。
+- **优雅停机**：三服务 + litestream 设 `stop_grace_period`，利用 Spot ~2min 中断预警让 worker 释放租约、litestream 刷最后 WAL 到 S3。job 幂等（lease 重抢）使抢占安全，`.part` 在 tmpfs 丢了重下。
+- **IAM 角色 + IMDS**：实例挂 S3 读写角色，`S3_ACCESS_KEY_ID/SECRET` 留空即用；容器取 IMDS 角色凭证须把实例 metadata **hop-limit 设为 2**。
+- **整机回收自动重来**：属基础设施——**ASG + user-data** 开机 `docker compose -f base -f cloud up -d`，新实例经 litestream 恢复后继续。中断期间短暂不可用，对下载服务可接受。
 
 ## §6 决策（① ② ③ ④ ⑤ 已定，⑥ ⑦ 运维范畴）
 

@@ -1,27 +1,32 @@
-# 云上变体（公网 VM + Docker Compose）：去 NAS/CIFS，./data ./tmp 改 docker 命名卷，产物走对象存储（GCS/S3）。
+# 云上变体（AWS Spot 抢占式 VM + Docker Compose）：去 NAS/CIFS，产物走 S3，SQLite 靠 Litestream 复制到 S3。
 # 叠加在正式 docker-compose.yml 上使用：
 #   docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d --build
 #
-# 说明：
-# - 三服务的 /app/data、/app/tmp 由命名卷 app_data/app_tmp 承载（跨容器重建保留 SQLite：版本目录 + auth 库）。
-# - /mnt/nas/apks 覆盖为 tmpfs：对象存储不用本地 artifacts 目录，此处仅承载启动时的目录/写探测，随容器消失。
-# - base 的 nas_apks(CIFS) 卷在本变体中不被任何服务引用（不会发起 CIFS 挂载），顶层再降级为 local 兜底。
-# - 对象存储凭证、飞书 OAuth、API Key 开关等从 .env.cloud 注入；PUBLIC_BASE_URL 必须是外部可达 https。
+# 抢占式适配（Spot 随时被回收、连本地盘一起没）：
+# - 产物已在 S3（阶段 22），机器被抢不丢件；下载中断由 worker 租约重抢重下（DOWNLOAD_JOB_LEASE_SECONDS 调小加快）。
+# - auth.sqlite（API Key/管理员）+ version-catalog.sqlite（账本/目录）靠 litestream 持续复制到 S3；
+#   litestream 服务开机先 restore，healthy 后才放行三应用服务启动（depends_on: service_healthy）。
+# - stop_grace_period 给 SIGTERM 后时间：worker 释放租约、litestream 把最后 WAL 刷到 S3（Spot 有 ~2min 预警）。
+# - 凭证走实例 IAM 角色（S3_ACCESS_KEY_ID/SECRET 留空即可）；容器要能访问 IMDS，须把实例
+#   metadata hop-limit 设为 2（见部署文档）。
+# - 整机被回收后的自动重来由 ASG + user-data（开机 docker compose up）负责，属基础设施（见部署文档）。
 
 x-cloud-env: &cloud_env
   APP_ENV: ${APP_ENV:-production}
   PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
-  # ---- 对象存储 ----
+  # ---- 对象存储（AWS S3）----
   STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
   STORAGE_PREFIX: ${STORAGE_PREFIX:-artifacts}
   SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-3600}
-  GCS_BUCKET: ${GCS_BUCKET:-}
-  GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
   S3_BUCKET: ${S3_BUCKET:-}
   S3_REGION: ${S3_REGION:-}
   S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
-  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}         # 留空 → 用实例 IAM 角色（推荐）
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  GCS_BUCKET: ${GCS_BUCKET:-}
+  GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
+  # ---- 抢占式：下载租约调小，卡住的 job 更快被新机重抢 ----
+  DOWNLOAD_JOB_LEASE_SECONDS: ${DOWNLOAD_JOB_LEASE_SECONDS:-600}
   # ---- 鉴权（公网必开）----
   AUTH_ENABLED: ${AUTH_ENABLED:-true}
   AUTH_API_KEY_ENABLED: ${AUTH_API_KEY_ENABLED:-true}
@@ -32,37 +37,71 @@ x-cloud-env: &cloud_env
   SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
 
 # 整块覆盖三服务的 volumes（compose 按挂载目标覆盖 base：/app/data、/app/tmp、/mnt/nas/apks）。
+# /app/data 为命名卷（litestream 与三应用共享同一份 SQLite；被 Spot 回收也没关系，靠 S3 恢复）。
 x-cloud-volumes: &cloud_volumes
   - app_data:/app/data
   - app_tmp:/app/tmp
   - type: tmpfs
     target: /mnt/nas/apks
 
+# 三应用服务等 litestream 恢复完成（healthy）后再启动，避免抢在 restore 前建出空库。
+x-litestream-gate: &litestream_gate
+  litestream:
+    condition: service_healthy
+
 services:
+  litestream:
+    image: litestream/litestream:0.3.13
+    restart: unless-stopped
+    environment:
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      # 留空 → 实例 IAM 角色。非 AWS/静态密钥时取消注释下面两行：
+      # LITESTREAM_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      # LITESTREAM_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+    volumes:
+      - app_data:/app/data
+      - ./deploy/litestream.yml:/etc/litestream.yml:ro
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - >
+        litestream restore -if-db-not-exists -if-replica-exists /app/data/auth.sqlite &&
+        litestream restore -if-db-not-exists -if-replica-exists /app/data/version-catalog.sqlite &&
+        touch /tmp/ready &&
+        exec litestream replicate
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+    stop_grace_period: 30s
+
   android-package-service:
     environment: *cloud_env
     volumes: *cloud_volumes
-    # STORAGE_BACKEND=gcs 时，把 SA key 文件挂进容器并让 GCS_CREDENTIALS_JSON 指向它（web + worker 都要）：
-    #   volumes:
-    #     - app_data:/app/data
-    #     - app_tmp:/app/tmp
-    #     - type: tmpfs
-    #       target: /mnt/nas/apks
-    #     - ./secrets/gcs-sa.json:/run/secrets/gcs-sa.json:ro
-    # 并在 .env.cloud 设 GCS_CREDENTIALS_JSON=/run/secrets/gcs-sa.json。S3 用 env 凭证则无需挂载。
+    depends_on: *litestream_gate
+    stop_grace_period: 45s
+    # STORAGE_BACKEND=gcs 时把 SA key 文件挂进 web + worker（GCS_CREDENTIALS_JSON 指向它）；S3 用实例角色无需挂载。
 
   android-package-download-worker:
     environment: *cloud_env
     volumes: *cloud_volumes
+    depends_on: *litestream_gate
+    stop_grace_period: 45s
 
   android-package-catalog-scheduler:
     environment:
       <<: *cloud_env
       CATALOG_REFRESH_ENABLED: ${CATALOG_REFRESH_ENABLED:-true}
     volumes: *cloud_volumes
+    depends_on: *litestream_gate
+    stop_grace_period: 30s
 
 volumes:
-  # base 的 nas_apks(CIFS) 在本变体降级为 local 兜底（服务未引用，防 CIFS 变量缺失时的挂载/告警）。
+  # base 的 nas_apks(CIFS) 在本变体降级为 local 兜底（服务未引用，compose 合并时剪除）。
   nas_apks:
     driver: local
     driver_opts: {}
