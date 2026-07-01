@@ -131,7 +131,7 @@ volumes:
 - `./tmp` 保存下载过程中的临时文件，可随时丢弃；新生成的 `xapk-build` 打包目录会在单次打包结束后自动清理。
 - `nas_apks` 挂载 NAS，用来保存 APK/XAPK 这类大文件 artifact，避免占满服务器磁盘。
 - `NAS_PUBLIC_BASE_URL`：NAS 自带 HTTP 文件服务（nginx）对外前缀，其根须对应 `NAS_MOUNT_PATH` 根
-  （如 `/mnt/nas/apks` ↔ `http://10.0.0.6:5003/android-packages`）。配置后 `/download` 改为 **302 重定向到
+  （如 `/mnt/nas/apks` ↔ `http://<nas-host>:5003/android-packages`）。配置后 `/download` 改为 **302 重定向到
   NAS 直链**，把大包传输从「容器经 CIFS 读 150MB 再转发」双跳卸到 NAS nginx 直供，解放 worker、不占容器带宽。
   留空（默认）则本服务流式返回。**仅当下游客户端能直连该地址时启用**（内网/同网段；外网够不到 NAS 私网 IP 时勿配）。
 - `shm_size` 是给 Playwright Chromium 留空间，避免网页兜底路径在容器里不稳定。

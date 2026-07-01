@@ -109,7 +109,7 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
 
     # NAS 自带的 HTTP 文件服务（nginx）对外前缀；其根须对应 nas_mount_path 根
-    # （如 /mnt/nas/apks <-> http://10.0.0.6:5003/android-packages）。
+    # （如 /mnt/nas/apks <-> http://<nas-host>:5003/android-packages）。
     # 留空：/download 由本服务从 NAS 经 CIFS 读出再流式返回（默认，行为不变）。
     # 配置后：/download 改为 302 重定向到 NAS 直链（artifact 在 nas_mount_path 下时），
     # 把大包传输从「容器读 + 转发」双跳卸到 NAS nginx 直供，解放 worker、避免占用容器带宽。
