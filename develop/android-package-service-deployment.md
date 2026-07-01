@@ -401,6 +401,8 @@ cp .env.cloud.example .env.cloud   # 填域名/飞书凭证/S3 桶+区域
 docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d --build
 ```
 
+完整上机步骤(建 IAM/ALB/ASG/S3/SSM 等)二选一:[deploy/CONSOLE_DEPLOY.md](../deploy/CONSOLE_DEPLOY.md)(AWS 网页控制台手工版)或 [deploy/terraform/](../deploy/terraform/)(Terraform IaC 版)。
+
 **抢占式（Spot）能不丢东西的关键**：计算与本地盘都是临时的，一切持久状态都落 S3。
 
 - **产物**：`STORAGE_BACKEND=s3` + `S3_BUCKET`/`S3_REGION`。产物在 `/app/tmp` 暂存打包后上传 S3，下载下发返回**短期 signed URL 的 302**（大流量卸到 S3，机器被抢不丢件）。镜像已装 `s3`/`gcs` extras。
