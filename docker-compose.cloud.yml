@@ -1,0 +1,70 @@
+# 云上变体（公网 VM + Docker Compose）：去 NAS/CIFS，./data ./tmp 改 docker 命名卷，产物走对象存储（GCS/S3）。
+# 叠加在正式 docker-compose.yml 上使用：
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d --build
+#
+# 说明：
+# - 三服务的 /app/data、/app/tmp 由命名卷 app_data/app_tmp 承载（跨容器重建保留 SQLite：版本目录 + auth 库）。
+# - /mnt/nas/apks 覆盖为 tmpfs：对象存储不用本地 artifacts 目录，此处仅承载启动时的目录/写探测，随容器消失。
+# - base 的 nas_apks(CIFS) 卷在本变体中不被任何服务引用（不会发起 CIFS 挂载），顶层再降级为 local 兜底。
+# - 对象存储凭证、飞书 OAuth、API Key 开关等从 .env.cloud 注入；PUBLIC_BASE_URL 必须是外部可达 https。
+
+x-cloud-env: &cloud_env
+  APP_ENV: ${APP_ENV:-production}
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+  # ---- 对象存储 ----
+  STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+  STORAGE_PREFIX: ${STORAGE_PREFIX:-artifacts}
+  SIGNED_URL_TTL_SECONDS: ${SIGNED_URL_TTL_SECONDS:-3600}
+  GCS_BUCKET: ${GCS_BUCKET:-}
+  GCS_CREDENTIALS_JSON: ${GCS_CREDENTIALS_JSON:-}
+  S3_BUCKET: ${S3_BUCKET:-}
+  S3_REGION: ${S3_REGION:-}
+  S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-}
+  S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+  S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+  # ---- 鉴权（公网必开）----
+  AUTH_ENABLED: ${AUTH_ENABLED:-true}
+  AUTH_API_KEY_ENABLED: ${AUTH_API_KEY_ENABLED:-true}
+  FEISHU_APP_ID: ${FEISHU_APP_ID:-}
+  FEISHU_APP_SECRET: ${FEISHU_APP_SECRET:-}
+  FEISHU_AUTH_BASE: ${FEISHU_AUTH_BASE:-https://accounts.feishu.cn}
+  FEISHU_API_BASE: ${FEISHU_API_BASE:-https://open.feishu.cn}
+  SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+
+# 整块覆盖三服务的 volumes（compose 按挂载目标覆盖 base：/app/data、/app/tmp、/mnt/nas/apks）。
+x-cloud-volumes: &cloud_volumes
+  - app_data:/app/data
+  - app_tmp:/app/tmp
+  - type: tmpfs
+    target: /mnt/nas/apks
+
+services:
+  android-package-service:
+    environment: *cloud_env
+    volumes: *cloud_volumes
+    # STORAGE_BACKEND=gcs 时，把 SA key 文件挂进容器并让 GCS_CREDENTIALS_JSON 指向它（web + worker 都要）：
+    #   volumes:
+    #     - app_data:/app/data
+    #     - app_tmp:/app/tmp
+    #     - type: tmpfs
+    #       target: /mnt/nas/apks
+    #     - ./secrets/gcs-sa.json:/run/secrets/gcs-sa.json:ro
+    # 并在 .env.cloud 设 GCS_CREDENTIALS_JSON=/run/secrets/gcs-sa.json。S3 用 env 凭证则无需挂载。
+
+  android-package-download-worker:
+    environment: *cloud_env
+    volumes: *cloud_volumes
+
+  android-package-catalog-scheduler:
+    environment:
+      <<: *cloud_env
+      CATALOG_REFRESH_ENABLED: ${CATALOG_REFRESH_ENABLED:-true}
+    volumes: *cloud_volumes
+
+volumes:
+  # base 的 nas_apks(CIFS) 在本变体降级为 local 兜底（服务未引用，防 CIFS 变量缺失时的挂载/告警）。
+  nas_apks:
+    driver: local
+    driver_opts: {}
+  app_data:
+  app_tmp:

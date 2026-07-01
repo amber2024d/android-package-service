@@ -11,7 +11,7 @@
 - Git 提交规范：[develop/git-commit-guidelines.md](develop/git-commit-guidelines.md)
 - 版本目录重构设计（已落地，阶段 10–17）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
 - APKMirror 源适配器设计（已落地，阶段 15）：[develop/android-package-service-apkmirror-adapter-design.md](develop/android-package-service-apkmirror-adapter-design.md)
-- 云迁移改造设计（实施中，阶段 18–22 已落地、23 待实现）：[develop/android-package-service-cloud-migration-design.md](develop/android-package-service-cloud-migration-design.md)；鉴权 `app/auth/`+`app/admin/`、对象存储 `app/storage/`（见 [PROJECT_MAP.md](PROJECT_MAP.md)）
+- 云迁移改造设计（阶段 18–23，全部已落地）：[develop/android-package-service-cloud-migration-design.md](develop/android-package-service-cloud-migration-design.md)；鉴权 `app/auth/`+`app/admin/`、对象存储 `app/storage/`、云上部署 `docker-compose.cloud.yml`（见 [PROJECT_MAP.md](PROJECT_MAP.md)）
 - 调研文档入口：`docs/*.md`（APKMirror 上游调研：[docs/apkmirror-download-research.md](docs/apkmirror-download-research.md)）
 - 项目地图：[PROJECT_MAP.md](PROJECT_MAP.md)
 

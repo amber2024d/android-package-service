@@ -88,12 +88,13 @@ scripts/smoke.sh                                 # 增带鉴权分支（可选�
 
 ## 当前状态
 
-- **未开始（计划，2026-07-01 制定）**。依赖：阶段 18–22（鉴权数据层/配置基座、飞书 OAuth、API Key 控制台、
-  对象存储抽象、GCS/S3 signed URL 下发）全部落地后才能整体验收。
-- 风险/注意点：
-  - 叠加覆盖时 `volumes` 是**整块替换**而非合并——云变体须把三服务的完整 `volumes` 列表重写（含 `app_data`/`app_tmp`），
-    漏写会退回 base 的 NAS 挂载导致启动失败。
-  - `PUBLIC_BASE_URL` 与飞书平台登记的 `redirect_uri` 必须**逐字一致**（含协议、域名、`/auth/callback` 路径），
-    否则回调 400；改域名即需同步飞书安全设置。
-  - GCS SA key 是私钥凭证，勿写进 `.env.cloud.example` 明文；模板只留占位与挂载说明。
-  - `docker-compose.yml` 改动须谨慎，保证现有 NAS 版（内网）单独 `docker compose up -d` 不受影响。
+- **已完成（实现，2026-07-01）**。依赖：阶段 18–22。
+- 落地：
+  - `docker-compose.cloud.yml`：叠加变体（`-f base -f cloud`）——三服务 `volumes` 覆盖为 `app_data:/app/data`、`app_tmp:/app/tmp`、tmpfs `/mnt/nas/apks`；`environment` 增补 `STORAGE_BACKEND`/桶凭证/`AUTH_*`/`FEISHU_*`/`PUBLIC_BASE_URL` 等（从 `.env.cloud` 注入）；顶层加 `app_data`/`app_tmp` 命名卷、`nas_apks` 降级 local（compose 合并时因无引用被剪除）。
+  - `.env.cloud.example`：生产 env 模板（`APP_ENV=production`、`PUBLIC_BASE_URL`、`AUTH_ENABLED=true`、`FEISHU_*`、`STORAGE_BACKEND=s3|gcs` + 桶/凭证、`SIGNED_URL_TTL_SECONDS`），无 NAS 段。
+  - `Dockerfile`：`pip install '.[s3,gcs]'`（镜像装对象存储 SDK；local 后端懒加载不 import）。
+  - `scripts/smoke.sh`：`API_KEY` 驱动的带鉴权 smoke（数据 API 带 Bearer；额外断言无 Key 401、`/dashboard` 未登录 302），未设时行为与内网一致。
+  - 文档：`develop/android-package-service-deployment.md` 增「云上部署」章节；`README.md`/`PROJECT_MAP.md` 增云上启动方式；`.dockerignore` 无需改。
+- 验证：`docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud.example config` **合并成功**——三服务无 NAS/CIFS 挂载（`cifs` 0 次）、命名卷 + tmpfs 就位、`AUTH_ENABLED`/`STORAGE_BACKEND` 注入正确；base NAS 版独立 `config` 仍 OK（不受影响）。`sh -n scripts/smoke.sh` 通过。真实云端到端需运维配桶/凭证/反代后跑 smoke。
+- 更正：compose 叠加时 `volumes` 按**挂载目标（target）覆盖**（非整块替换），本变体照 `docker-compose.dev.yml` 的成熟模式重写三 target；未被引用的 base `nas_apks`(CIFS) 不发起挂载、合并时被剪除。
+- 注意：`PUBLIC_BASE_URL` 与飞书平台登记的 `redirect_uri` 须逐字一致；GCS SA key 为私钥、模板只留占位 + 挂载说明；桶/生命周期/CORS 由运维预置。

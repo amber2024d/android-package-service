@@ -61,8 +61,9 @@
 
 ## 运行配置
 
-- 正式 Docker：`docker-compose.yml`，使用 NAS/CIFS volume。
+- 正式 Docker（内网 NAS）：`docker-compose.yml`，使用 NAS/CIFS volume。
 - 本地测试 Docker：`docker-compose.dev.yml`，覆盖为 `./data`、`./tmp`、`./artifacts`。
+- 云上 Docker（公网 VM，阶段 23）：`docker-compose.cloud.yml`（叠加 `-f base -f cloud`）——去 NAS/CIFS、`./data`/`./tmp` 改命名卷 `app_data`/`app_tmp`、`/mnt/nas/apks` 改 tmpfs、产物走对象存储、开鉴权；env 模板 `.env.cloud.example`。启动：`docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d`。
 - Docker 构建忽略：`.dockerignore`，只把镜像构建需要的源码和项目元数据放进 context。
 - 一键本地测试 Docker：`scripts/dev-compose-up.sh`。
 - 部署 smoke：`scripts/smoke.sh`。

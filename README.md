@@ -45,6 +45,17 @@ NAS_SHARE_PATH=apks
 
 容器内最终 artifact 固定写入 `/mnt/nas/apks/artifacts`。NAS 不可写时服务启动失败，避免大文件落到服务器本地盘。
 
+### 云上部署（公网 VM，去 NAS + 对象存储 + 鉴权）
+
+公网部署用 `docker-compose.cloud.yml` 叠加变体：去掉 NAS/CIFS、`./data`/`./tmp` 改 docker 命名卷、产物走对象存储（GCS/S3，下载返回短期 signed URL 302），并开启鉴权（数据 API 用 API Key、首页/监控面板用飞书 OAuth 单管理员）。
+
+```sh
+cp .env.cloud.example .env.cloud   # 填域名、飞书 App ID/Secret、STORAGE_BACKEND=s3|gcs + 桶/凭证
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d --build
+```
+
+`PUBLIC_BASE_URL` 须为外部可达 https（同时决定飞书回调 `redirect_uri` 与下载 `fileUrl`），前置反代终止 TLS 转发到容器 `8080`。详见[部署设计 · 云上部署](develop/android-package-service-deployment.md#云上部署公网-vm--对象存储--鉴权阶段-23)。
+
 ## Provider 与代理
 
 真实 provider 默认关闭，按需在 `.env` 打开：

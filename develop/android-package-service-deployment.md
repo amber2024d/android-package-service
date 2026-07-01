@@ -392,6 +392,30 @@ location / {
 大游戏 XAPK 可能超过数 GB，最终 artifact 应写入 NAS。服务器本地磁盘主要承载临时文件和少量状态，仍需要给 `/app/tmp` 预留并发下载时的空间。
 `xapk-build` 会在单次打包结束后自动清理；磁盘峰值仍取决于并发下载的 `.part`、已下载源文件和正在打包的单个 XAPK。
 
+## 云上部署（公网 VM + 对象存储 + 鉴权，阶段 23）
+
+迁到公网云机器时用 `docker-compose.cloud.yml` 叠加变体，去掉 NAS/CIFS，产物走对象存储（GCS/S3），并开启鉴权。
+
+```sh
+cp .env.cloud.example .env.cloud   # 填写域名/飞书凭证/对象存储桶
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d --build
+```
+
+与内网 NAS 版的差异：
+
+- **存储**：`STORAGE_BACKEND=s3|gcs` + 桶/凭证；产物在 `/app/tmp` 暂存打包后上传对象存储，下载下发返回**短期 signed URL 的 302**（大流量卸到对象存储，容器不转发）。镜像已装 `s3`/`gcs` extras；`local` 后端不 import 这些 SDK。
+- **卷**：三服务的 `/app/data`、`/app/tmp` 由 docker 命名卷 `app_data`/`app_tmp` 承载（跨容器重建保留 SQLite：版本目录库 + `auth.sqlite`）；`/mnt/nas/apks` 覆盖为 tmpfs（对象存储不用本地 artifacts 目录，仅承载启动写探测）。base 的 `nas_apks`(CIFS) 在本变体不被引用、compose 合并时剪除，无 CIFS 挂载。
+- **鉴权**：`AUTH_ENABLED=true`。数据 API（`/api/v1/android/*`）需 API Key（`Authorization: Bearer`）；首页 `/`、监控面板 `/dashboard` 走飞书 OAuth 单管理员登录；`/api/v1/monitor/snapshot` 兼容会话或 API Key。管理员在 `/admin` 控制台创建/吊销 API Key。
+- **反向代理与 HTTPS**：公网前置反代（nginx/Caddy/云 LB）终止 TLS、转发到容器 `8080`。`PUBLIC_BASE_URL` 必须是外部可达的 **https** 地址——它同时决定飞书 `redirect_uri`（`{PUBLIC_BASE_URL}/auth/callback`，须在飞书开放平台「安全设置 → 重定向 URL」登记一致）与下载任务返回的 `statusUrl`/`fileUrl`。生产（`APP_ENV=production`）会话 cookie 自动加 `Secure`。
+- **GCS 凭证**：v4 signed URL 需带私钥的服务账号，把 SA key 文件挂进 web + worker 容器（见 `docker-compose.cloud.yml` 注释），`GCS_CREDENTIALS_JSON` 指向容器内路径；S3 用 env 凭证则无需挂载。桶、生命周期、CORS 由运维预置（signed URL 直下无需 CORS）。
+- **持久化/备份**：`version-catalog.sqlite`（名↔号账本，不可再生）+ `auth.sqlite`（管理员/Key）落 `app_data` 卷；备份用卷快照或 `sqlite3 .backup`。
+
+云上 smoke（带鉴权）：`API_KEY` 设为管理员创建的 Key，脚本会额外校验「无 Key 401、`/dashboard` 未登录 302」。
+
+```sh
+API_KEY=<管理员创建的Key> BASE_URL=https://android-packages.example.com scripts/smoke.sh
+```
+
 ## Smoke
 
 启动后运行：

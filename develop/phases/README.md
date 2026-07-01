@@ -38,7 +38,7 @@
 | 16 | [phase-16-proactive-archive](phase-16-proactive-archive/README.md) | 主动归档（发现即抓取）——深历史唯一可靠出路 |
 | 17 | [phase-17-appmagic-monitor](phase-17-appmagic-monitor/README.md) | AppMagic known 时间线内部监控源（不进对外接口） |
 
-### 云迁移（阶段 18–23，**实施中**：18–22 已落地，23 待实现）
+### 云迁移（阶段 18–23，**全部已落地**）
 
 从 [云迁移改造设计](../android-package-service-cloud-migration-design.md) 拆出：迁到公网云 VM（Docker Compose），加鉴权、把 NAS 存储抽象为对象存储、去 NAS 部署变体。三块改造 = 鉴权（18–20）+ 存储（21–22）+ 部署（23）。
 
@@ -49,7 +49,7 @@
 | 20 | [phase-20-api-key-admin-console](phase-20-api-key-admin-console/README.md) | API Key 鉴权 + 管理控制台 + 自描述更新（保护数据 API） | ✅ 已落地 |
 | 21 | [phase-21-storage-abstraction](phase-21-storage-abstraction/README.md) | 对象存储抽象 + 本地后端（行为保持重构） | ✅ 已落地 |
 | 22 | [phase-22-object-storage-backends](phase-22-object-storage-backends/README.md) | GCS / S3 后端 + signed URL 302 下发 | ✅ 已落地 |
-| 23 | [phase-23-cloud-deployment](phase-23-cloud-deployment/README.md) | 云上 Docker Compose 变体 + 部署收尾（去 NAS） | ⏳ 待实现 |
+| 23 | [phase-23-cloud-deployment](phase-23-cloud-deployment/README.md) | 云上 Docker Compose 变体 + 部署收尾（去 NAS） | ✅ 已落地 |
 
 ## 推进顺序
 

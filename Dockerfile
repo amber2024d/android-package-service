@@ -9,8 +9,10 @@ RUN apt-get update \
 COPY pyproject.toml ./
 COPY app ./app
 
+# 装 s3+gcs extras（对象存储后端 SDK），使镜像同时支持 local/s3/gcs；
+# NAS/本地部署用 local 后端不会 import 这些 SDK（懒加载），仅镜像体积略增。
 RUN pip install --no-cache-dir -U pip \
-    && pip install --no-cache-dir .
+    && pip install --no-cache-dir '.[s3,gcs]'
 
 ENV PORT=8080
 ENV DATA_DIR=/app/data
