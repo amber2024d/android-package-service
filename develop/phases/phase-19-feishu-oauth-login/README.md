@@ -71,5 +71,11 @@ app/api/monitor.py                 # GET /dashboard、GET /api/v1/monitor/snapsh
 
 ## 当前状态
 
-- **未开始（计划，2026-07-01 制定）**。依赖：阶段 18（`app/auth/store.py`、`auth.sqlite` 表、`feishu_*`/`session_ttl_hours` 配置项已就绪）。
-- 风险/注意：`redirect_uri`（`{PUBLIC_BASE_URL}/auth/callback`）须与飞书开放平台「安全设置 → 重定向 URL」登记地址完全一致，否则授权回调 400；本地无 https 时 cookie 的 `Secure` 只在 `APP_ENV=production` 打开，避免开发期 cookie 不落。真实飞书授权需运维配好自建应用 `App ID`/`App Secret` 与回调白名单后方能端到端验证，单测以 monkeypatch httpx 覆盖为主。
+- **已完成（实现，2026-07-01）**。依赖：阶段 18。
+- 落地：
+  - `app/auth/feishu.py`：`FeishuUser` + `build_authorize_url`/`exchange_code`/`fetch_user_info`（httpx，端点基址取 `feishu_auth_base`/`feishu_api_base`）+ `FeishuOAuthError`。
+  - `app/auth/deps.py`：`get_auth_service` + `require_admin_session`（页面 302 到 `/auth/login?next=`）/ `require_admin_api`（snapshot 401）；`auth_enabled=False` 一律放行。
+  - `app/auth/routes.py`：`/auth/login`（建 state + 302 飞书）、`/auth/callback`（state 单次校验 → 换 token → user_info → 单管理员三分支 → 会话 cookie → 302 回 next）、`/auth/logout`。
+  - `app/main.py`：`include_router(auth_router)`；`app/api/discover.py`：`GET /` 挂 `require_admin_session`；`app/api/monitor.py`：`/dashboard` 挂 `require_admin_session`、snapshot 挂 `require_admin_api`、echarts 公开。
+- 测试：`tests/auth/test_oauth_flow.py`（登录跳转、首登注册、二人 403、state 400、缺参 400、logout 6）+ `tests/auth/test_session_gate.py`（未登录 302/401、有效会话放行、未知会话 302、`auth_enabled=false` 放行 4）；OAuth 用 monkeypatch httpx。全量 **239 passed**。
+- 注意：snapshot 现为会话门禁（`require_admin_api`，401），阶段 20 升级为 `require_session_or_api_key`；`redirect_uri`（`{PUBLIC_BASE_URL}/auth/callback`）须与飞书开放平台「重定向 URL」逐字一致；cookie `Secure` 仅 `APP_ENV=production` 打开。真实飞书端到端需运维配好 App 凭证与回调白名单。

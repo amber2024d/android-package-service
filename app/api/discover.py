@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
+from app.auth.deps import require_admin_session
 from app.core.config import Settings, get_settings
 from app.providers.factory import ProviderFactory
 
@@ -33,7 +34,8 @@ _HOME_HTML = (Path(__file__).parent / "home.html").read_text(encoding="utf-8")
 
 
 @discover_router.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+async def home(request: Request, _admin: object = Depends(require_admin_session)):
+    # 首页受飞书 OAuth 会话门禁（§3.2）；auth_enabled=False 时依赖放行。
     base_url = str(request.base_url).rstrip("/")
     prompt = PROMPT_TEMPLATE.format(discover_url=f"{base_url}/discover")
     html = _HOME_HTML.replace("__PROMPT_JSON__", json.dumps(prompt, ensure_ascii=False))

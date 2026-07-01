@@ -17,6 +17,10 @@
   供 `/dashboard` 单页前端轮询；纯读、无副作用、不触发采集/下载。`/dashboard` 是深色「监控指挥台」（仪表盘 hero + ECharts 图表 +
   可切浅色），图表库 `app/api/echarts.min.js` 本地随服务分发（内网无 CDN），经 `/dashboard/echarts.min.js` 路由静态供给。
   配了 `NAS_PUBLIC_BASE_URL` 时产物就绪后 302 重定向到 NAS nginx 直链（`nas_public_url`）；留空则 `FileResponse` 流式返回。
+- `app/auth/`（阶段 18–20）：鉴权子系统。`store.py`（独立 `data/auth.sqlite` 四表 admin_user/api_keys/sessions/oauth_states + WAL）、
+  `service.py`（纯逻辑：API Key 生成/哈希/校验、服务端会话、OAuth state、单管理员注册三分支）、`feishu.py`（httpx 手写飞书 OAuth：授权 URL/换 token/user_info）、
+  `deps.py`（`require_admin_session` 页面 302 / `require_admin_api` snapshot 401，`auth_enabled=False` 放行）、`routes.py`（`/auth/login|callback|logout`）。
+  首页 `/`、`/dashboard`、`/api/v1/monitor/snapshot` 受飞书 OAuth 单管理员会话门禁；数据 API 的 API Key 校验与管理控制台见阶段 20。
 - `app/domain/`：跨 API、provider、下载层共享的模型和错误类型。
 - `app/providers/`：上游来源适配，只产出 `AndroidPackageInfo` 和 `DownloadPlan`。
 - `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取工具（非独立 provider）。阶段 11 起 `list_versions`

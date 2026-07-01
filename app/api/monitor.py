@@ -22,6 +22,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
+from app.auth.deps import require_admin_api, require_admin_session
 from app.catalog.store import CatalogStore
 from app.core.config import Settings, get_settings
 
@@ -427,13 +428,16 @@ def get_monitor_service(settings: Settings = Depends(get_settings)) -> MonitorSe
 def monitor_snapshot(
     days: int = Query(default=7, ge=1, le=90),
     service: MonitorService = Depends(get_monitor_service),
+    _admin: object = Depends(require_admin_api),
 ):
     # 同步 def：FastAPI 自动在 threadpool 执行，避免同步 sqlite3 I/O 阻塞事件循环（面板高频轮询）。
+    # 面板数据源：未登录 401（§3.2）；阶段 20 升级为「会话或 API Key」以兼容程序化监控。
     return JSONResponse(service.snapshot(days=days))
 
 
 @monitor_router.get("/dashboard", response_class=HTMLResponse)
-async def dashboard():
+async def dashboard(_admin: object = Depends(require_admin_session)):
+    # 监控面板受飞书 OAuth 会话门禁（§3.2）；未登录 302 到 /auth/login。
     return HTMLResponse(content=_DASHBOARD_HTML)
 
 
