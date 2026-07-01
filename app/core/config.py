@@ -79,6 +79,20 @@ class Settings(BaseSettings):
     # 又保证预签名/带 cookie 的下载链接与生成它的会话同 IP。
     upstream_proxy: str | None = None
 
+    # 鉴权（阶段 18–20，公网必开；本地测试默认关以兼容现有用例）。
+    # auth_enabled：总门禁开关，关时页面/数据 API 依赖全部放行（现有测试不受影响）。
+    # auth_api_key_enabled：数据 API 是否校验 API Key（独立于 auth_enabled，供内网联调单独回退）。
+    auth_enabled: bool = False
+    auth_api_key_enabled: bool = True
+    # 飞书 OAuth 自建应用凭证（= 开放平台「应用 App ID / App Secret」，即用户口中的「机器人 id/key」）。
+    feishu_app_id: str | None = None
+    feishu_app_secret: str | None = None
+    # 飞书端点基址：默认飞书中国；Lark 国际版改 accounts.larksuite.com / open.larksuite.com。
+    feishu_auth_base: str = "https://accounts.feishu.cn"
+    feishu_api_base: str = "https://open.feishu.cn"
+    # 管理员会话有效期（小时）；redirect_uri 由 public_base_url 拼 /auth/callback，不单列。
+    session_ttl_hours: int = 24
+
     # NAS 自带的 HTTP 文件服务（nginx）对外前缀；其根须对应 nas_mount_path 根
     # （如 /mnt/nas/apks <-> http://10.0.0.6:5003/android-packages）。
     # 留空：/download 由本服务从 NAS 经 CIFS 读出再流式返回（默认，行为不变）。
@@ -87,7 +101,7 @@ class Settings(BaseSettings):
     # 仅当下游客户端能直连该地址时启用（内网/同网段）；外网客户端够不到 NAS 私网 IP 时勿开。
     nas_public_base_url: str | None = None
 
-    @field_validator("upstream_proxy", "nas_public_base_url", mode="before")
+    @field_validator("upstream_proxy", "nas_public_base_url", "feishu_app_id", "feishu_app_secret", mode="before")
     @classmethod
     def _blank_to_none(cls, value: object) -> object:
         # compose 的 `${VAR:-}` 未配置时传空串；空串归一为 None，让各处统一走「未配置」分支
@@ -123,6 +137,11 @@ class Settings(BaseSettings):
     @property
     def catalog_db_path(self) -> Path:
         return self.data_dir / "version-catalog.sqlite"
+
+    @property
+    def auth_db_path(self) -> Path:
+        # 鉴权独立库（管理员/API Key/会话/OAuth state），与版本目录物理分库（§3.5）。
+        return self.data_dir / "auth.sqlite"
 
     def ensure_directories(self) -> None:
         for path in (

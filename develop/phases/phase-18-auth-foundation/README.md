@@ -71,5 +71,13 @@ app/core/config.py               # 加 §3.6 字段：auth_enabled/auth_api_key_
 
 ## 当前状态
 
-- **未开始（计划，2026-07-01 制定）**。依赖：无（阶段 18 是鉴权链路起点，为阶段 19/20 提供数据与配置底座）。
-- 风险/注意点：`auth.sqlite` 必须与 `version-catalog.sqlite` **物理分库**（§3.5），勿误连或误建到目录库、勿复用 catalog 的 per-package 锁；四表列名/约束须与设计 SQL 逐字一致，避免阶段 19/20 返工。`AUTH_ENABLED` 默认 `False`、新代码零调用方，是保证「不影响现有测试」的关键——评审时重点核对无接线泄漏。
+- **已完成（实现，2026-07-01）**。依赖：无。
+- 落地：
+  - `app/auth/store.py`：`AuthStore`（独立 `auth.sqlite`，四表 `admin_user`/`api_keys`/`sessions`/`oauth_states` + WAL + 幂等建表；不复用 catalog 的 per-package 锁）。
+  - `app/auth/models.py`：`AdminUser`/`ApiKey`/`Session` dataclass。
+  - `app/auth/service.py`：`AuthService` 纯逻辑——create/verify/list/revoke API Key（`aps_` 前缀 + `sha256` 哈希、明文一次性、`last_used_at`）、会话建查删（TTL + 惰性清理）、oauth state 建/单次消费（`BEGIN IMMEDIATE`）、`register_or_check_admin` 三分支。
+  - `app/auth/errors.py`：`AuthError` + `AdminSeatTakenError`。
+  - `app/core/config.py`：新增 `auth_enabled`/`auth_api_key_enabled`/`feishu_app_id`/`feishu_app_secret`/`feishu_auth_base`/`feishu_api_base`/`session_ttl_hours` + `@property auth_db_path` + `feishu_*` 并入 `_blank_to_none`。
+  - `.env.example`：鉴权段（含「机器人 id/key = App ID/App Secret」说明）。
+- 测试：`tests/auth/test_store.py`（建表/WAL/UNIQUE/幂等 3）+ `tests/auth/test_service.py`（单管理员三分支、Key 创建/校验/吊销、会话 TTL、state 单次+过期 6）。全量 **239 passed**。
+- 注意：`AUTH_ENABLED` 默认 `False`；接线（`main.py`/`discover.py`/`monitor.py`）在阶段 19 一并完成，阶段 18 代码本身零接线、不影响现有测试。
