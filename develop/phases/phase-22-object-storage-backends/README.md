@@ -83,6 +83,14 @@ app/api/routes.py                   # artifact_response() 的 signed URL 302 分
 
 ## 当前状态
 
-- **未开始（计划，2026-07-01 制定）**。依赖：阶段 21（`StorageBackend` 抽象 + `local`/`fake` 后端 + `artifact_response()` 预留分支）。
-- 风险/注意点：GCS v4 签名依赖 SA 私钥（`GCS_CREDENTIALS_JSON`），运维须下发 SA key，Workload Identity/ADC 无私钥场景本期不支持（须走 IAM SignBlob，见 §4.8）。
-- S3 兼容端点须验证 MinIO 下 `generate_presigned_url` 的 host/path-style 是否可被浏览器 302 直达；signed URL 直下无需 CORS（浏览器跟随 302 即可，§6.6）。桶须由运维预置，应用不建桶。
+- **已完成（实现，2026-07-01）**。依赖：阶段 21。
+- 落地：
+  - `app/storage/s3.py`：`S3Backend`（boto3 **懒加载**、client 可注入；`generate_presigned_url` 带 `ResponseContentDisposition`；`s3_endpoint_url` 兼容 MinIO）。
+  - `app/storage/gcs.py`：`GCSBackend`（google-cloud-storage 懒加载、bucket 可注入；v4 `generate_signed_url` 带 `response_disposition`，需 SA 私钥 `GCS_CREDENTIALS_JSON`）。
+  - `app/storage/factory.py`：补 gcs/s3 分支，缺桶时抛清晰 `RuntimeError`（先于 SDK import）。
+  - `app/core/config.py`：`gcs_bucket`/`gcs_credentials_json` + `s3_bucket`/`s3_region`/`s3_endpoint_url`/`s3_access_key_id`/`s3_secret_access_key`（并入 `_blank_to_none`）。
+  - `pyproject.toml`：`[project.optional-dependencies]` 加 `gcs=[google-cloud-storage]`、`s3=[boto3]`；补 `app.admin` package-data。
+  - `.env.example`：存储段（`STORAGE_BACKEND`/`STORAGE_PREFIX`/`SIGNED_URL_TTL_SECONDS`/`GCS_*`/`S3_*`）。
+  - 下发：`artifact_response` 的 signed URL 302 分支（阶段 21 预留）随对象后端生效。
+- 测试：`tests/storage/test_s3.py`、`test_gcs.py`（注入假 client，覆盖 upload/exists/head/signed_url 含 disposition+TTL/元数据/复用，不装 SDK、不触真实云）+ `tests/test_download_signed_url.py`（HTTP 端到端：对象后端 /download → 302 signed URL）；`test_factory.py` 更新为缺桶 `RuntimeError`。全量 **271 passed**。
+- 注意：GCS v4 签名依赖 SA 私钥（`GCS_CREDENTIALS_JSON`），ADC/Workload Identity 无私钥须走 IAM SignBlob（本期不支持，§4.8）；桶/生命周期/CORS 由运维预置（§6.6）；signed URL 直下无需 CORS（浏览器跟随 302）。真实云端到端需运维配桶与凭证后验证。

@@ -93,6 +93,21 @@ class Settings(BaseSettings):
     # 管理员会话有效期（小时）；redirect_uri 由 public_base_url 拼 /auth/callback，不单列。
     session_ttl_hours: int = 24
 
+    # 产物对象存储（阶段 21–22）：工厂策略选后端。
+    # local（默认，等价现状：落 artifacts_dir + FileResponse/NAS 直链下发）/ gcs / s3（signed URL 302 下发）。
+    storage_backend: str = "local"
+    storage_prefix: str = "artifacts"          # 云桶内统一根前缀；local 忽略（已含在 artifacts_dir）
+    signed_url_ttl_seconds: int = 3600         # 对象后端 signed URL 有效期
+    # GCS（阶段 22）：v4 signed URL 需带私钥的服务账号；gcs_credentials_json 为 SA key 文件路径或内联 JSON。
+    gcs_bucket: str | None = None
+    gcs_credentials_json: str | None = None
+    # S3 / 兼容（阶段 22）：s3_endpoint_url 留空即 AWS，填则兼容 MinIO 等自建对象存储。
+    s3_bucket: str | None = None
+    s3_region: str | None = None
+    s3_endpoint_url: str | None = None
+    s3_access_key_id: str | None = None
+    s3_secret_access_key: str | None = None
+
     # NAS 自带的 HTTP 文件服务（nginx）对外前缀；其根须对应 nas_mount_path 根
     # （如 /mnt/nas/apks <-> http://10.0.0.6:5003/android-packages）。
     # 留空：/download 由本服务从 NAS 经 CIFS 读出再流式返回（默认，行为不变）。
@@ -101,7 +116,20 @@ class Settings(BaseSettings):
     # 仅当下游客户端能直连该地址时启用（内网/同网段）；外网客户端够不到 NAS 私网 IP 时勿开。
     nas_public_base_url: str | None = None
 
-    @field_validator("upstream_proxy", "nas_public_base_url", "feishu_app_id", "feishu_app_secret", mode="before")
+    @field_validator(
+        "upstream_proxy",
+        "nas_public_base_url",
+        "feishu_app_id",
+        "feishu_app_secret",
+        "gcs_bucket",
+        "gcs_credentials_json",
+        "s3_bucket",
+        "s3_region",
+        "s3_endpoint_url",
+        "s3_access_key_id",
+        "s3_secret_access_key",
+        mode="before",
+    )
     @classmethod
     def _blank_to_none(cls, value: object) -> object:
         # compose 的 `${VAR:-}` 未配置时传空串；空串归一为 None，让各处统一走「未配置」分支

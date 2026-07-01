@@ -92,7 +92,15 @@ app/core/config.py               # 新增 storage_backend/storage_prefix/signed_
 
 ## 当前状态
 
-- **未开始（计划，2026-07-01 制定）**。依赖：无（与鉴权阶段 18–20 独立并行）；本阶段是阶段 22（GCS/S3 + signed URL）的前置。
-- 风险/注意点：核心风险是「等价重构引入隐性行为漂移」——`existing()` 复用判定、artifact 落盘路径、下发回退链（`nas_public_url` → `FileResponse`）
-  必须逐点复刻，任何差异都算 bug。`artifact_path` 语义从绝对路径变对象 key 是唯一有意的行为变更，需在 worker/monitor 改动说明中明确标注：
-  key 仍含 `{provider}/` 段故 `_provider_from_artifact` 兼容，但老库存量行仍是绝对路径，反解逻辑须两种形态都能容错。
+- **已完成（实现，2026-07-01）**。依赖：无。
+- 落地：
+  - `app/storage/base.py`：`StorageBackend` ABC（**同步接口**：云 SDK 本就同步，与现有 async 里跑同步 IO 一致）+ `ObjectMeta` + `object_key`/`metadata_prefix` 静态方法；`local_path` 默认 None。
+  - `app/storage/local.py`：`LocalStorageBackend`（根 = `artifacts_dir`；upload=copy、head=stat、`signed_url`=None、metadata.json 边车、`local_path` 返回真实路径）。
+  - `app/storage/fake.py`：`FakeStorageBackend`（内存对象桩，默认签名，`local_path`=None，供单测走 signed URL 路径）。
+  - `app/storage/factory.py`：`build_storage_backend`（local；gcs/s3 阶段 22 前留 NotImplementedError，后已实现）。
+  - `app/download/artifact_store.py` 重写为 `ArtifactStore(backend, verifier)`：`existing()` 按后端能力分流（本地=stat+zip 中央目录复刻现状；对象=元数据+head 大小）、`commit()` 上传 + 写元数据边车。
+  - `app/download/downloader.py`：产物在 `tmp/artifact-staging` 暂存打包 → `commit` 上传 → 清理暂存；`download()`/`existing()` 返回**对象 key**。
+  - `app/catalog/orchestrator.py`：返回类型 Path→key 字符串。`app/api/routes.py`：`artifact_response(key)` 按后端下发（本地 FileResponse/NAS 直链；预留 signed URL 302）；`get_download_job_file` 用 `backend.exists`。
+  - `app/core/config.py`：`storage_backend`/`storage_prefix`/`signed_url_ttl_seconds`。
+- 测试：`tests/storage/test_local.py`（object_key 布局、三复用场景 + commit）+ `test_factory.py` + `test_fake.py`（对象后端复用路径）；`test_apkm_bundle.py` 更新为经 `backend.local_path(key)` 解析；删 `tests/test_artifact_reuse.py`（组件 `ArtifactStore` 被替换，测试迁入 `tests/storage`）。全量 **264 passed**（行为保持，HTTP/job/orchestrator 测试零改断言）。
+- 说明：`worker.py`/`jobs.py` 未改——`str(key)` 对 key 幂等，`download_jobs.artifact_path` 现存对象 key（含 `{provider}/` 段）；`monitor._provider_from_artifact` 仅老库（succeeded_provider 为空）触发、不受影响。local 后端下 5GB 产物暂存+copy 有一次额外本地写（可接受，云为目标）。

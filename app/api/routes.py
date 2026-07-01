@@ -6,10 +6,11 @@ from uuid import uuid4
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 
 from app.api.errors import error_response
 from app.auth.deps import require_api_key
+from app.storage.factory import build_storage_backend
 from app.catalog.catalog import VersionCatalog
 from app.catalog.orchestrator import DownloadOrchestrator
 from app.catalog.runtime import build_catalog
@@ -240,21 +241,28 @@ async def get_download_job_file(
     job = jobs.get(job_id)
     if job is None:
         return JSONResponse({"error": "NOT_FOUND", "message": "Download job not found."}, status_code=404)
-    if job.status != "succeeded" or job.artifact_path is None or not job.artifact_path.exists():
+    key = str(job.artifact_path) if job.artifact_path is not None else None
+    if job.status != "succeeded" or key is None or not build_storage_backend(settings).exists(key):
         return JSONResponse({"error": "NOT_READY", "message": "Download job has no ready artifact."}, status_code=409)
-    return artifact_response(settings, job.artifact_path)
+    return artifact_response(settings, key)
 
 
-def artifact_response(settings: Settings, artifact: Path):
-    # 配了 NAS 直供前缀就 302 重定向到 NAS nginx 直链，把大包传输从容器卸到 NAS（默认走 FileResponse）。
-    nas_url = nas_public_url(settings, artifact)
-    if nas_url:
-        return RedirectResponse(nas_url, status_code=302)
-    return FileResponse(
-        artifact,
-        media_type=media_type_for(artifact),
-        filename=artifact.name,
-    )
+def artifact_response(settings: Settings, key: str):
+    """按存储后端能力下发产物 key（§4.5）：能签名 → 302 signed URL；本地 → NAS 直链 302 或 FileResponse。"""
+    backend = build_storage_backend(settings)
+    filename = key.rsplit("/", 1)[-1]
+    signed = backend.signed_url(key, expires_in=settings.signed_url_ttl_seconds, filename=filename)
+    if signed:
+        return RedirectResponse(signed, status_code=302)
+    local = backend.local_path(key)
+    if local is not None:
+        # 配了 NAS 直供前缀就 302 到 NAS nginx 直链，否则本服务 FileResponse 流式返回。
+        nas_url = nas_public_url(settings, local)
+        if nas_url:
+            return RedirectResponse(nas_url, status_code=302)
+        return FileResponse(local, media_type=media_type_for(local), filename=local.name)
+    # 对象后端但未签名（异常兜底）：流式转发。
+    return StreamingResponse(backend.open_stream(key), media_type=media_type_for(Path(filename)))
 
 
 def download_job_response(request: Request, job: DownloadJob) -> dict:

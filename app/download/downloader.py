@@ -23,7 +23,9 @@ from app.domain.models import DownloadPlan, PackageFile, PackageFileType
 from app.download.artifact_store import ArtifactStore
 from app.download.verifier import FileVerifier
 from app.download.xapk_builder import XapkBuilder
-from app.utils.filenames import safe_part
+from app.storage.base import StorageBackend
+from app.storage.factory import build_storage_backend
+from app.utils.filenames import artifact_filename, safe_part
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,13 @@ class PackageDownloader:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.verifier = FileVerifier()
-        self.store = ArtifactStore(settings.artifacts_dir, self.verifier)
+        self.backend = build_storage_backend(settings)
+        self.store = ArtifactStore(self.backend, self.verifier)
         self.builder = XapkBuilder()
         self.ledger = VersionLedger(CatalogStore(settings.catalog_db_path)) if settings.catalog_backfill_enabled else None
 
-    async def download(self, plan: DownloadPlan, request_id: str | None = None, *, lock_version_key: str | None = None) -> Path:
+    async def download(self, plan: DownloadPlan, request_id: str | None = None, *, lock_version_key: str | None = None) -> str:
+        """下载/复用产物，返回对象 key（§4.4）。产物在本地 tmp 暂存打包后上传后端，暂存随即清理。"""
         key = self._lock_key(plan, lock_version_key)
         lock = self._locks.setdefault(key, asyncio.Lock())
         async with lock:
@@ -60,21 +64,29 @@ class PackageDownloader:
                 self._log_artifact("artifact_reused", plan, existing, request_id)
                 return existing
 
-            artifact_dir = self.store.plan_dir(plan)
-            files_dir = artifact_dir / "files"
+            staging = self._staging_dir(plan)
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+            files_dir = staging / "files"
             files_dir.mkdir(parents=True, exist_ok=True)
-            fetched = await self._fetch_files(plan, files_dir)
-            plan, fetched = self._expand_bundles(plan, fetched, files_dir)
-            # 解包可能用 info.json 补全 version_code，改变 plan 的 version_key，确保新目标目录存在。
-            self.store.plan_dir(plan).mkdir(parents=True, exist_ok=True)
-            artifact = self._finalize(plan, fetched)
-            self.store.write_metadata(plan, artifact)
-            self._log_artifact("artifact_written", plan, artifact, request_id)
-            await self._backfill_ledger(plan, artifact, request_id)
-            return artifact
+            try:
+                fetched = await self._fetch_files(plan, files_dir)
+                plan, fetched = self._expand_bundles(plan, fetched, files_dir)
+                # 解包可能用 info.json 补全 version_code，改变 plan 的 version_key（对象 key 随之定）。
+                artifact = self._finalize(plan, fetched, staging)
+                object_key = StorageBackend.object_key(plan, artifact.name)
+                self.store.commit(plan, artifact, object_key)
+                self._log_artifact("artifact_written", plan, object_key, request_id)
+                await self._backfill_ledger(plan, artifact, request_id)
+                return object_key
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
 
-    def existing(self, plan: DownloadPlan) -> Path | None:
-        """已落 NAS 的产物就返回它，否则 None（校验失败也视作无）。供编排器在抓取前先探缓存。"""
+    def _staging_dir(self, plan: DownloadPlan) -> Path:
+        return self.settings.temp_dir / "artifact-staging" / safe_part(plan.provider) / safe_part(plan.package_name) / safe_part(plan.version_key)
+
+    def existing(self, plan: DownloadPlan) -> str | None:
+        """已落存储的产物就返回其对象 key，否则 None（校验失败也视作无）。供编排器在抓取前先探缓存。"""
         return self.store.existing(plan)
 
     def _lock_key(self, plan: DownloadPlan, lock_version_key: str | None) -> tuple[str, str, str]:
@@ -241,25 +253,30 @@ class PackageDownloader:
         )
         return new_plan, new_fetched
 
-    def _finalize(self, plan: DownloadPlan, fetched: dict[str, Path]) -> Path:
+    def _finalize(self, plan: DownloadPlan, fetched: dict[str, Path], staging_dir: Path) -> Path:
+        """在本地暂存目录产出最终产物（供上传后端），返回其本地路径。"""
         if len(plan.files) == 1 and plan.files[0].type == PackageFileType.BASE_APK:
-            artifact = self.store.artifact_path(plan, ".apk")
+            artifact = staging_dir / self._artifact_name(plan, ".apk")
             shutil.copy2(fetched[plan.files[0].name], artifact)
             self.verifier.verify_artifact(artifact, plan)
             return artifact
 
         if len(plan.files) == 1 and plan.files[0].type in {PackageFileType.XAPK, PackageFileType.APKS}:
             suffix = ".apks" if plan.files[0].type == PackageFileType.APKS else ".xapk"
-            artifact = self.store.artifact_path(plan, suffix)
+            artifact = staging_dir / self._artifact_name(plan, suffix)
             shutil.copy2(fetched[plan.files[0].name], artifact)
             self.verifier.verify_artifact(artifact, plan)
             return artifact
 
-        artifact = self.store.artifact_path(plan, ".xapk")
+        artifact = staging_dir / self._artifact_name(plan, ".xapk")
         build_dir = self.settings.xapk_build_dir / safe_part(plan.provider) / safe_part(plan.package_name) / safe_part(plan.version_key)
         self.builder.build(plan, fetched, artifact, build_dir)
         self.verifier.verify_artifact(artifact, plan)
         return artifact
+
+    @staticmethod
+    def _artifact_name(plan: DownloadPlan, suffix: str) -> str:
+        return artifact_filename(plan.package_name, plan.version_name, plan.version_code, plan.provider, suffix)
 
     async def _backfill_ledger(self, plan: DownloadPlan, artifact: Path, request_id: str | None) -> None:
         """成功落 artifact 后，解析产物 manifest 回填名↔号账本（旁路、失败隔离）。
@@ -352,7 +369,7 @@ class PackageDownloader:
         self,
         event: str,
         plan: DownloadPlan,
-        artifact: Path,
+        artifact: str | Path,
         request_id: str | None,
     ) -> None:
         log_event(

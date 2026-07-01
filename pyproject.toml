@@ -24,12 +24,21 @@ dev = [
   "pytest>=8.3",
   "respx>=0.21",
 ]
+# 对象存储后端（阶段 22）：按 STORAGE_BACKEND 安装对应 extra；local/测试不需要。
+# SDK 在 app/storage/{gcs,s3}.py 内懒加载，未装时不影响本地后端与单测（单测注入假 client）。
+gcs = [
+  "google-cloud-storage>=2.18",
+]
+s3 = [
+  "boto3>=1.35",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
 
 [tool.setuptools.package-data]
 "app.api" = ["*.html", "*.js"]
+"app.admin" = ["*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

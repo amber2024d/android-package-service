@@ -1,6 +1,5 @@
 import logging
 from contextlib import closing
-from pathlib import Path
 from sqlite3 import Connection
 
 from app.catalog.store import CatalogStore
@@ -36,8 +35,8 @@ class DownloadOrchestrator:
         completed = self._complete(request)
         return await self.factory.get_download_plan(completed, request_id=request_id)
 
-    async def download(self, request: AndroidPackageRequest, request_id: str | None = None) -> tuple[Path, str]:
-        """返回 (artifact, 命中 provider)。命中 provider = 复用产物所属源或 fallback 后实际下载成功的源，
+    async def download(self, request: AndroidPackageRequest, request_id: str | None = None) -> tuple[str, str]:
+        """返回 (artifact 对象 key, 命中 provider)。命中 provider = 复用产物所属源或 fallback 后实际下载成功的源，
         供下载 worker 直接落库（监控的「命中来源」据此还原，不再靠 artifact 路径解析）。"""
         completed = self._complete(request)
         lock_version_key = (
@@ -93,8 +92,8 @@ class DownloadOrchestrator:
                     break
         raise AggregateProviderError(errors)
 
-    def existing(self, request: AndroidPackageRequest) -> Path | None:
-        """只探已落 artifact，不解析 provider、不下载。给 Web 入队前保留缓存快路径。"""
+    def existing(self, request: AndroidPackageRequest) -> str | None:
+        """只探已落 artifact，返回对象 key，不解析 provider、不下载。给 Web 入队前保留缓存快路径。"""
         completed = self._complete(request)
         providers = self.factory.resolve(completed.preferred_provider)
         for provider in providers:
@@ -105,7 +104,7 @@ class DownloadOrchestrator:
 
     # ---- 抓取前先探已有产物（决策①②） --------------------------------------- #
 
-    def _existing_artifact(self, provider_id: str, completed: AndroidPackageRequest) -> Path | None:
+    def _existing_artifact(self, provider_id: str, completed: AndroidPackageRequest) -> str | None:
         """指定版本时，抓取前先探这个 provider 已落 NAS 的产物，命中即复用、跳过整段 provider 解析。
 
         同一逻辑版本的 ``version_key`` 可能被写成 ``versionCode`` 或 ``versionName`` 两种
@@ -137,7 +136,7 @@ class DownloadOrchestrator:
         return None
 
     def _log_reuse(
-        self, request: AndroidPackageRequest, provider_id: str, artifact: Path, request_id: str | None
+        self, request: AndroidPackageRequest, provider_id: str, artifact: str, request_id: str | None
     ) -> None:
         # 与下载层 existing() 命中同形态：artifact_reused（产物级）+ download_ok（请求级）。
         for event, status in (("artifact_reused", "reused"), ("download_ok", "reused")):

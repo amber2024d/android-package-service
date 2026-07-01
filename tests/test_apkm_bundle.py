@@ -64,11 +64,13 @@ def test_apkm_expands_to_xapk_with_info_json_authority(tmp_path):
     downloader = _downloader(tmp_path)
     apkm = _make_apkm(tmp_path / "bundle.apkm")
     try:
-        artifact = asyncio.run(downloader.download(_apkm_plan(apkm)))
+        key = asyncio.run(downloader.download(_apkm_plan(apkm)))
     finally:
         get_settings.cache_clear()
 
-    assert artifact.suffix == ".xapk"
+    # download 现返回对象 key；本地后端经 local_path 解析真实产物路径。
+    artifact = downloader.backend.local_path(key)
+    assert key.endswith(".xapk")
     with zipfile.ZipFile(artifact) as archive:
         names = set(archive.namelist())
         manifest = json.loads(archive.read("manifest.json"))

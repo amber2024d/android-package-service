@@ -22,6 +22,7 @@
   `deps.py`（`require_admin_session` 页面 302 / `require_api_key` 数据 API 401 / `require_session_or_api_key` snapshot，`auth_enabled=False` 放行）、`routes.py`（`/auth/login|callback|logout`）。
   首页 `/`、`/dashboard` 受飞书 OAuth 单管理员会话门禁；`/api/v1/android/*` 需 API Key（`Authorization: Bearer`，兼容 `X-API-Key`）；`/api/v1/monitor/snapshot` 兼容会话或 API Key。`/discover`、`/health`、echarts 公开。
 - `app/admin/`（阶段 20）：管理控制台。`routes.py`（`GET /admin` 列 Key + `POST /admin/api-keys` 建 Key 返回一次性明文 + `POST /admin/api-keys/{id}/revoke` 吊销，全走 `require_admin_session`）+ `console.html`（深色单页）。
+- `app/storage/`（阶段 21–22）：产物对象存储工厂策略。`base.py`（`StorageBackend` **同步接口** + `ObjectMeta` + object_key 布局 `{provider}/{package}/{version_key}/{filename}` + 元数据边车 `metadata.json`）、`local.py`（根 = artifacts_dir，等价现状）、`s3.py`/`gcs.py`（boto3 / google-cloud-storage **懒加载**、client 可注入、signed URL 302 带 content-disposition）、`fake.py`（内存桩）、`factory.py`（按 `STORAGE_BACKEND` 选后端）。`ArtifactStore`（`app/download/artifact_store.py`）持后端做 `existing()` 复用判定 + `commit()` 上传；下载在 `tmp/artifact-staging` 暂存打包后上传，`download()`/`existing()` 返回**对象 key**，`download_jobs.artifact_path` 存 key。
 - `app/domain/`：跨 API、provider、下载层共享的模型和错误类型。
 - `app/providers/`：上游来源适配，只产出 `AndroidPackageInfo` 和 `DownloadPlan`。
 - `app/providers/apkpure_versions.py`：共享的 APKPure 网页抓取工具（非独立 provider）。阶段 11 起 `list_versions`

@@ -11,7 +11,7 @@
 - Git 提交规范：[develop/git-commit-guidelines.md](develop/git-commit-guidelines.md)
 - 版本目录重构设计（已落地，阶段 10–17）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
 - APKMirror 源适配器设计（已落地，阶段 15）：[develop/android-package-service-apkmirror-adapter-design.md](develop/android-package-service-apkmirror-adapter-design.md)
-- 云迁移改造设计（实施中，阶段 18–20 已落地、21–23 待实现）：[develop/android-package-service-cloud-migration-design.md](develop/android-package-service-cloud-migration-design.md)；鉴权源码入口 `app/auth/`、`app/admin/`（见 [PROJECT_MAP.md](PROJECT_MAP.md)）
+- 云迁移改造设计（实施中，阶段 18–22 已落地、23 待实现）：[develop/android-package-service-cloud-migration-design.md](develop/android-package-service-cloud-migration-design.md)；鉴权 `app/auth/`+`app/admin/`、对象存储 `app/storage/`（见 [PROJECT_MAP.md](PROJECT_MAP.md)）
 - 调研文档入口：`docs/*.md`（APKMirror 上游调研：[docs/apkmirror-download-research.md](docs/apkmirror-download-research.md)）
 - 项目地图：[PROJECT_MAP.md](PROJECT_MAP.md)
 
@@ -33,6 +33,7 @@
 - `app/api/monitor.py`：只读监控面板——`/dashboard` 单页 + `/api/v1/monitor/snapshot` 聚合数据源（任务状态、provider 流转、近 N 天耗时/成功率、收录规模）。首页/面板受 `app/auth` 会话门禁，snapshot 兼容会话或 API Key（阶段 19–20）。
 - `app/auth/`（阶段 18–20）：鉴权——`store.py`（`auth.sqlite` 四表）、`service.py`（API Key/会话/OAuth state/单管理员纯逻辑）、`feishu.py`（飞书 OAuth）、`deps.py`（`require_admin_session` 页面门禁 / `require_api_key` 数据 API / `require_session_or_api_key` snapshot）、`routes.py`（`/auth/*`）。开关 `AUTH_ENABLED`（默认关，公网必开）。
 - `app/admin/`（阶段 20）：管理控制台——`/admin`（列 Key）+ `/admin/api-keys`（建/吊销），走飞书会话 + 单管理员门禁；`console.html` 深色单页。
+- `app/storage/`（阶段 21–22）：产物对象存储工厂策略——`base.py`（`StorageBackend` 同步接口 + object_key 布局）、`local.py`（现状等价）、`s3.py`/`gcs.py`（SDK 懒加载、client 可注入、signed URL 302）、`fake.py`、`factory.py`。`STORAGE_BACKEND`=local/gcs/s3；产物暂存于 `tmp/artifact-staging` 打包后上传，下发对象后端返回 signed URL 302、本地回退 FileResponse/NAS 直链。
 - `app/catalog/`：版本目录（阶段 10–17）——SQLite 库、名↔号账本、源采集器、`VersionCatalog` 枚举层、下载编排器、定时刷新调度器、主动归档、AppMagic known 层。详见 [PROJECT_MAP.md](PROJECT_MAP.md)。
 - `tests/`：阶段主路径测试；`tests/catalog/` 为版本目录测试。
 

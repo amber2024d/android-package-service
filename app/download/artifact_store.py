@@ -1,63 +1,69 @@
-import json
+"""产物复用 + 落库协调（阶段 21 重构）。
+
+从「本地路径拼接器」演进为「StorageBackend 封装」：`existing()` 判定可复用产物、`commit()` 上传产物 +
+写元数据边车。复用判定按后端能力分流（§4.6）：
+- 本地后端（`local_path` 非空）：复刻现状——存在 + `stat` 大小 + 读 zip 中央目录核 manifest 版本，**不重算整文件哈希**。
+- 对象后端：`get_metadata` 命中 + `head` 大小一致即复用，不回读整产物（对象存储无廉价随机读，信任写入时已算的 hash）。
+"""
+
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.domain.errors import ProviderException
 from app.domain.models import DownloadPlan
 from app.download.verifier import FileVerifier
-from app.utils.filenames import artifact_filename, safe_part
+from app.storage.base import StorageBackend
 from app.utils.hashing import file_hashes
 
 
 class ArtifactStore:
-    def __init__(self, artifacts_dir: Path, verifier: FileVerifier):
-        self.artifacts_dir = artifacts_dir
+    def __init__(self, backend: StorageBackend, verifier: FileVerifier):
+        self.backend = backend
         self.verifier = verifier
 
-    def plan_dir(self, plan: DownloadPlan) -> Path:
-        return self.artifacts_dir / safe_part(plan.provider) / safe_part(plan.package_name) / safe_part(plan.version_key)
-
-    def artifact_path(self, plan: DownloadPlan, suffix: str) -> Path:
-        return self.plan_dir(plan) / artifact_filename(
-            plan.package_name,
-            plan.version_name,
-            plan.version_code,
-            plan.provider,
-            suffix,
-        )
-
-    def existing(self, plan: DownloadPlan) -> Path | None:
-        metadata_path = self.plan_dir(plan) / "metadata.json"
-        if not metadata_path.exists():
+    def existing(self, plan: DownloadPlan) -> str | None:
+        """可复用则返回对象 key，否则 None（校验失败/元数据缺失也视作无）。"""
+        prefix = self.backend.metadata_prefix(plan)
+        meta = self.backend.get_metadata(prefix)
+        if not meta:
             return None
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
-            artifact = Path(metadata["artifact_path"])
-            # 复用快路径：只核对存在 + 大小（stat）+ manifest 版本（读 zip 中央目录，便宜）；
-            # **不传 hashes**，避免每次复用都把整个产物从 NAS 读出来重算 md5/sha1/sha256
-            # （150MB XAPK 在慢盘上能拖到分钟级；哈希写入时已算过，这里只防文件被换/截断）。
-            self.verifier.verify_artifact(artifact, plan, size=metadata.get("size"))
-            return artifact
-        except Exception:
+        key = meta.get("key")
+        if not key:
             return None
+        local = self.backend.local_path(key)
+        if local is not None:
+            # 本地：复刻现状轻校验（存在 + 大小 + manifest 版本），不重算整文件哈希。
+            if not local.exists():
+                return None
+            try:
+                self.verifier.verify_artifact(local, plan, size=meta.get("size"))
+            except ProviderException:
+                return None
+            except Exception:  # noqa: BLE001 — 元数据/文件异常一律视作不可复用
+                return None
+            return key
+        # 对象后端：元数据在 + head 大小一致即复用。
+        head = self.backend.head(key)
+        if head is None:
+            return None
+        size = meta.get("size")
+        if size is not None and head.size != size:
+            return None
+        return key
 
-    def write_metadata(self, plan: DownloadPlan, artifact: Path) -> None:
-        metadata_path = self.plan_dir(plan) / "metadata.json"
-        metadata_path.parent.mkdir(parents=True, exist_ok=True)
-        metadata_path.write_text(
-            json.dumps(
-                {
-                    "provider": plan.provider,
-                    "package_name": plan.package_name,
-                    "version_name": plan.version_name,
-                    "version_code": plan.version_code,
-                    "artifact_path": str(artifact),
-                    "size": artifact.stat().st_size,
-                    "hashes": file_hashes(artifact),
-                    "created_at": datetime.now(UTC).isoformat(),
-                    "files": [file.model_dump(mode="json") for file in plan.files],
-                },
-                ensure_ascii=False,
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
+    def commit(self, plan: DownloadPlan, local_artifact: Path, key: str) -> None:
+        """把本地暂存的最终产物上传后端 + 写元数据边车（size/hashes 在上传前从本地读）。"""
+        meta = {
+            "key": key,
+            "filename": local_artifact.name,
+            "provider": plan.provider,
+            "package_name": plan.package_name,
+            "version_name": plan.version_name,
+            "version_code": plan.version_code,
+            "size": local_artifact.stat().st_size,
+            "hashes": file_hashes(local_artifact),
+            "created_at": datetime.now(UTC).isoformat(),
+            "files": [file.model_dump(mode="json") for file in plan.files],
+        }
+        self.backend.upload(local_artifact, key)
+        self.backend.put_metadata(self.backend.metadata_prefix(plan), meta)
