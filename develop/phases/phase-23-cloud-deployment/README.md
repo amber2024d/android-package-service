@@ -1,0 +1,99 @@
+# 阶段 23：云上 Docker Compose 变体 + 部署收尾
+
+## 目标
+
+交付把服务从内网搬上公网云机器（单 VM + Docker Compose）所需的部署产物：新增
+`docker-compose.cloud.yml` 叠加变体（去掉 NAS/CIFS 挂载、`./data` 与 `./tmp` 改用 docker 命名卷
+`app_data`/`app_tmp`）、`.env.cloud.example` 生产模板、云上启动/反代/持久化文档与一段带鉴权的 smoke。
+本阶段是纯部署收尾，**不改任何应用代码逻辑**——鉴权（阶段 18–20）与对象存储（阶段 21–22）的
+env 到此已可用，本阶段只把它们在 compose/env/文档里接线并验证。
+**非目标**：不写 K8s manifests（本期只 VM + compose）、不建对象存储桶（由运维预置，见设计 §6.6）、
+不做速率限制/WAF、不迁 SQLite 到托管数据库。
+
+## 输入文档
+
+- [设计 §5 部署设计（云上 Compose 变体 / env 模板 / SQLite 持久化 / 反代 / redirect_uri）](../../android-package-service-cloud-migration-design.md)
+- [设计 §3.6 鉴权配置项 / §4.8 存储配置项（本阶段 env 模板取值来源）](../../android-package-service-cloud-migration-design.md)
+- [设计 §6.5 决策：cloud compose 采「叠加覆盖」形态；§6.6 桶由运维预置](../../android-package-service-cloud-migration-design.md)
+
+## 交付范围
+
+新增：
+
+```text
+docker-compose.cloud.yml          # 叠加在 docker-compose.yml 上（-f base -f cloud）：三服务去掉 nas_apks:/mnt/nas/apks 挂载；./data、./tmp 改 docker 命名卷 app_data/app_tmp；&app_environment 增补 STORAGE_BACKEND/桶凭证/AUTH_ENABLED/FEISHU_* 等；顶层 volumes 删 nas_apks CIFS 卷、加 app_data/app_tmp；GCS 凭证经 secret 卷或 GCS_CREDENTIALS_JSON
+.env.cloud.example                 # 生产 env 模板：APP_ENV=production、PUBLIC_BASE_URL=https://<域名>、AUTH_ENABLED=true、FEISHU_*、STORAGE_BACKEND=gcs|s3 + 桶/凭证、SIGNED_URL_TTL_SECONDS；不含 NAS 段
+```
+
+改动：
+
+```text
+docker-compose.yml                             # 谨慎：仅在必要时把公共部分保持在 base 供云变体叠加复用，不破坏现有 NAS 版三服务定义
+develop/android-package-service-deployment.md  # 增补「云上部署」章节：叠加启动命令、反代终止 TLS→8080、PUBLIC_BASE_URL/redirect_uri 一致性、命名卷持久化与备份
+README.md                                       # 「部署/运行」段增补云上启动方式与新 env（AUTH_/FEISHU_/STORAGE_/SIGNED_URL_TTL_SECONDS）
+AGENTS.md                                        # 运行配置段同步云上启动方式与新 env 指引
+PROJECT_MAP.md                                   # 部署产物索引加 docker-compose.cloud.yml、.env.cloud.example
+scripts/smoke.sh                                 # 增带鉴权分支（可选，受 API_KEY/环境变量驱动）：/health 公开、数据 API 无 Key 401、带 Key 200、/dashboard 未登录 302
+```
+
+## 实施步骤
+
+1. **cloud compose 采「叠加覆盖」形态**（设计 §6.5）：`docker-compose.cloud.yml` 只写差异——
+   对 `android-package-service` / `android-package-download-worker` / `android-package-catalog-scheduler`
+   三服务的 `volumes` 用云版本覆盖（去 `- nas_apks:/mnt/nas/apks`，`./data`→`app_data:/app/data`、
+   `./tmp`→`app_tmp:/app/tmp`），顶层 `volumes` 删 `nas_apks` CIFS 卷、加 `app_data`/`app_tmp` 命名卷。
+2. **环境变量接线**（设计 §5.1）：在云变体的 `&app_environment` 增补 `STORAGE_BACKEND`、`STORAGE_PREFIX`、
+   `SIGNED_URL_TTL_SECONDS`、`GCS_*`/`S3_*` 桶凭证、`AUTH_ENABLED`、`AUTH_API_KEY_ENABLED`、`FEISHU_*`、
+   `SESSION_TTL_HOURS`，全部经 `${VAR}` 从 `.env.cloud` 注入；`NAS_MOUNT_PATH`/`NAS_*` 去掉，
+   `NAS_PUBLIC_BASE_URL` 保留但云上留空（对象后端不再用）。
+3. **GCS 凭证挂载**（设计 §5.1 / §4.8）：v4 signed URL 需带私钥 SA，`GCS_CREDENTIALS_JSON` 指向容器内路径，
+   经 secret 卷或只读卷把 SA key 文件挂进三服务（worker 也上传/下发，须同样挂到）。
+4. **`.env.cloud.example`**（设计 §5.2）：`APP_ENV=production`、`PUBLIC_BASE_URL=https://<域名>`、
+   `AUTH_ENABLED=true`、`FEISHU_APP_ID`/`FEISHU_APP_SECRET`（`FEISHU_AUTH_BASE`/`FEISHU_API_BASE` 默认飞书中国）、
+   `STORAGE_BACKEND=gcs|s3` + 对应桶/区域/端点/凭证、`SIGNED_URL_TTL_SECONDS=3600`；删去 NAS_* 整段。
+5. **反代与 HTTPS**（设计 §5.4）：文档写明公网前置反代（nginx/Caddy/云 LB）终止 TLS、转发到容器 `8080`；
+   `PUBLIC_BASE_URL` 必须是外部可达的 **https** 地址——它同时决定飞书 `redirect_uri`（`{PUBLIC_BASE_URL}/auth/callback`）
+   与下载任务返回的 `statusUrl`/`fileUrl`，飞书开放平台「安全设置 → 重定向 URL」须登记同一地址；
+   生产会话 cookie 依 `APP_ENV=production` 自动加 `Secure`。
+6. **SQLite 持久化**（设计 §5.3）：`version-catalog.sqlite`（名↔号账本，不可再生）+ `auth.sqlite`（管理员/Key）
+   都落 `/app/data`，由命名卷 `app_data` 承载、随容器重建保留；WAL 仍在本地卷（不放对象存储）；
+   文档给出备份方式（卷快照 / `sqlite3 .backup`）。
+7. **启动命令**（设计 §5.1）：统一记为
+   `docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d`，
+   写进部署文档、README、AGENTS。
+8. **smoke 扩展**（可选）：在 `scripts/smoke.sh` 加一段受环境变量（如 `API_KEY`）门控的鉴权断言，
+   本地无鉴权时不触发、不破坏现有内网 smoke。
+9. **文档同步**：`develop/android-package-service-deployment.md` 增「云上部署」章节，`README.md`/`AGENTS.md`/`PROJECT_MAP.md`
+   增补新 env 与云上启动方式，指回设计 §5。
+
+## 测试
+
+- 云变体启动：`docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud config` 校验合并后配置合法，且三服务均无 `nas_apks`/`/mnt/nas/apks` 挂载与 `NAS_*` 环境。
+- `docker compose ... up -d` 起三服务，`/health` 返回 `{"status":"ok"}`。
+- SQLite 持久化：写入数据（如首登注册管理员、建一个 API Key）→ `docker compose ... down` + `up -d` 重建容器 → `version-catalog.sqlite` 与 `auth.sqlite` 数据仍在（命名卷 `app_data` 未丢）。
+- 鉴权门禁（`AUTH_ENABLED=true`）：未登录 `GET /dashboard` 返回 302 至飞书授权；数据 API 无 Key 401、带合法 `Authorization: Bearer <key>` 200。
+- 下载下发：命中已有产物 `GET /api/v1/android/apps/{pkg}/download` 与 `/downloads/{jobId}/file` 返回 302 到对象存储 signed URL（gcs/s3 后端）。
+- `scripts/smoke.sh` 带鉴权分支通过；不设 `API_KEY` 时回退现有内网 smoke 全绿。
+
+## 验收标准
+
+- [ ] 云变体启动三服务无 NAS 依赖：合并配置里无 `nas_apks` 卷、无 `/mnt/nas/apks` 挂载、无 `NAS_MOUNT_PATH`。
+- [ ] `./data`、`./tmp` 改为命名卷 `app_data`/`app_tmp`，重建容器后 SQLite（`version-catalog.sqlite` + `auth.sqlite`）数据保留。
+- [ ] 未登录访问 `/dashboard` 302 到飞书；`PUBLIC_BASE_URL` 为 https 且飞书平台已登记同一 `redirect_uri`。
+- [ ] 数据 API 无 Key 返回 401、带 Key 返回 200。
+- [ ] 下载命中返回 302 signed URL（gcs/s3），`local` 回退 `FileResponse` 仍可用。
+- [ ] `.env.cloud.example` 覆盖设计 §3.6/§4.8 所有生产必填项且不含 NAS 段。
+- [ ] `develop/android-package-service-deployment.md`、`README.md`、`AGENTS.md`、`PROJECT_MAP.md` 均含云上启动命令与新 env。
+- [ ] `scripts/smoke.sh` 云上带鉴权 smoke 通过。
+
+## 当前状态
+
+- **未开始（计划，2026-07-01 制定）**。依赖：阶段 18–22（鉴权数据层/配置基座、飞书 OAuth、API Key 控制台、
+  对象存储抽象、GCS/S3 signed URL 下发）全部落地后才能整体验收。
+- 风险/注意点：
+  - 叠加覆盖时 `volumes` 是**整块替换**而非合并——云变体须把三服务的完整 `volumes` 列表重写（含 `app_data`/`app_tmp`），
+    漏写会退回 base 的 NAS 挂载导致启动失败。
+  - `PUBLIC_BASE_URL` 与飞书平台登记的 `redirect_uri` 必须**逐字一致**（含协议、域名、`/auth/callback` 路径），
+    否则回调 400；改域名即需同步飞书安全设置。
+  - GCS SA key 是私钥凭证，勿写进 `.env.cloud.example` 明文；模板只留占位与挂载说明。
+  - `docker-compose.yml` 改动须谨慎，保证现有 NAS 版（内网）单独 `docker compose up -d` 不受影响。

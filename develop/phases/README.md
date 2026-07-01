@@ -38,6 +38,19 @@
 | 16 | [phase-16-proactive-archive](phase-16-proactive-archive/README.md) | 主动归档（发现即抓取）——深历史唯一可靠出路 |
 | 17 | [phase-17-appmagic-monitor](phase-17-appmagic-monitor/README.md) | AppMagic known 时间线内部监控源（不进对外接口） |
 
+### 云迁移（阶段 18–23，**设计中**）
+
+从 [云迁移改造设计](../android-package-service-cloud-migration-design.md) 拆出：迁到公网云 VM（Docker Compose），加鉴权、把 NAS 存储抽象为对象存储、去 NAS 部署变体。三块改造 = 鉴权（18–20）+ 存储（21–22）+ 部署（23）。
+
+| 阶段 | 文档 | 目标 |
+| --- | --- | --- |
+| 18 | [phase-18-auth-foundation](phase-18-auth-foundation/README.md) | 鉴权数据层与配置基座（`app/auth/` + `auth.sqlite` + 配置项，不接线） |
+| 19 | [phase-19-feishu-oauth-login](phase-19-feishu-oauth-login/README.md) | 飞书 OAuth 单管理员登录 + 会话门禁（保护首页/面板/snapshot） |
+| 20 | [phase-20-api-key-admin-console](phase-20-api-key-admin-console/README.md) | API Key 鉴权 + 管理控制台 + 自描述更新（保护数据 API） |
+| 21 | [phase-21-storage-abstraction](phase-21-storage-abstraction/README.md) | 对象存储抽象 + 本地后端（行为保持重构） |
+| 22 | [phase-22-object-storage-backends](phase-22-object-storage-backends/README.md) | GCS / S3 后端 + signed URL 302 下发 |
+| 23 | [phase-23-cloud-deployment](phase-23-cloud-deployment/README.md) | 云上 Docker Compose 变体 + 部署收尾（去 NAS） |
+
 ## 推进顺序
 
 实际开发按下面顺序走：
@@ -51,6 +64,14 @@
 ```text
 一期：目录基座(10) -> 采集器/刷新(11) -> 编排器/provider 纯下载(12) -> 对外接口(13) -> 定时刷新(14)
 二期：主动归档(16, 只依赖一期、最轻最值) / APKMirror 源(15) / AppMagic 监控(17, 运维重、最后)
+```
+
+云迁移（阶段 18–23）在上述之后推进，鉴权链与存储链**互相独立、可并行**，部署收尾依赖全部：
+
+```text
+鉴权：基座(18) -> 飞书 OAuth 登录(19) -> API Key + 控制台(20)
+存储：抽象 + 本地后端(21) -> GCS/S3 + signed URL(22)
+部署：云上 compose 变体 + 收尾(23，依赖 18–22)
 ```
 
 每个阶段完成前只做本阶段必需能力。发现“以后可能要”的能力，先记在阶段文档的非目标里，等真实需要再加。
