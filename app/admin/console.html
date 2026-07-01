@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Android Package Service · 管理控制台</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, "PingFang SC", "Noto Sans SC", sans-serif;
+         background: #0a0a0b; color: #e7e7ea; padding: 2rem clamp(1rem, 5vw, 4rem); }
+  h1 { font-size: 1.4rem; margin: 0 0 1.2rem; letter-spacing: -.01em; }
+  .bar { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; margin-bottom: 1.4rem; }
+  input { background: #16161a; border: 1px solid #2a2a30; color: #e7e7ea; border-radius: 8px;
+          padding: .5rem .75rem; min-width: 240px; }
+  button { background: #4f46e5; border: 0; color: #fff; border-radius: 8px; padding: .5rem .9rem; cursor: pointer; }
+  button:hover { background: #4338ca; }
+  .bar a { color: #a1a1aa; text-decoration: none; margin-left: auto; padding: .4rem .2rem; }
+  .bar a + a { margin-left: 1rem; }
+  .new { background: #10241a; border: 1px solid #1f5137; border-radius: 10px; padding: 1rem; margin-bottom: 1.4rem; }
+  .new code { display: block; margin-top: .5rem; word-break: break-all; color: #34d399; font-size: 1rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: .6rem .5rem; border-bottom: 1px solid #1f1f24; }
+  th { color: #8a8a92; font-weight: 500; }
+  code { background: #16161a; padding: .1rem .35rem; border-radius: 5px; }
+  td a { color: #fb7185; }
+  .empty { color: #6b6b72; text-align: center; padding: 1.6rem; }
+</style>
+</head>
+<body>
+  <h1>API Key 管理</h1>
+  <div class="bar">
+    <input id="name" placeholder="Key 名称（如 ci、market-bot）">
+    <button onclick="createKey()">创建 Key</button>
+    <a href="/dashboard">监控面板</a>
+    <a href="/auth/logout">退出登录</a>
+  </div>
+  <div id="new" class="new" hidden></div>
+  <table>
+    <thead><tr><th>名称</th><th>前缀</th><th>创建时间</th><th>最后使用</th><th>状态</th></tr></thead>
+    <tbody>__ROWS__</tbody>
+  </table>
+  <script>
+    async function createKey() {
+      const el = document.getElementById('name');
+      const name = el.value.trim();
+      if (!name) { alert('请输入 Key 名称'); return; }
+      const r = await fetch('/admin/api-keys', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!r.ok) { alert('创建失败'); return; }
+      const d = await r.json();
+      const box = document.getElementById('new');
+      box.hidden = false;
+      box.innerHTML = '新 Key「' + name + '」创建成功，明文仅此一次，请立即保存：<code>' + d.key + '</code>';
+      el.value = '';
+    }
+    async function revoke(id) {
+      if (!confirm('确认吊销该 API Key？吊销后立即失效。')) return;
+      const r = await fetch('/admin/api-keys/' + id + '/revoke', { method: 'POST' });
+      if (r.ok) location.reload(); else alert('吊销失败');
+    }
+  </script>
+</body>
+</html>

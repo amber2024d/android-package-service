@@ -62,12 +62,16 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
     return JSONResponse(content={
         "name": "Android Package Service",
         "version": "1.0",
-        "description": "Android 安装包聚合服务。通过统一的 RESTful API 查询和下载 Android 应用的 APK/XAPK/APKS：多源 provider 自动聚合并按优先级 fallback，版本目录统一枚举每个包的可下载版本，下载层负责落盘、校验、artifact 复用与 XAPK 打包。服务对外无需鉴权，上游来源凭证与代理由服务端持有，主要面向 Agent 程序化调用。",
+        "description": "Android 安装包聚合服务。通过统一的 RESTful API 查询和下载 Android 应用的 APK/XAPK/APKS：多源 provider 自动聚合并按优先级 fallback，版本目录统一枚举每个包的可下载版本，下载层负责落盘、校验、artifact 复用与 XAPK 打包。数据 API 需 API Key（见 auth 段），上游来源凭证与代理由服务端持有，主要面向 Agent 程序化调用。",
         "base_url": base_url,
         "auth": {
-            "type": "none",
-            "description": "本服务对外不需要任何鉴权，所有接口均可直接调用。Google Play / APKPure 等上游来源的凭证、代理由服务端持有，调用方无需关心。",
-            "public_endpoints": ["/", "/dashboard", "/discover", "/health", "/api/v1/monitor/snapshot", "/api/v1/android/apps/{packageName}", "/api/v1/android/apps/{packageName}/files", "/api/v1/android/apps/{packageName}/versions", "/api/v1/android/apps/{packageName}/download", "/api/v1/android/downloads/{jobId}", "/api/v1/android/downloads/{jobId}/file"],
+            "type": "api_key",
+            "description": "数据 API（/api/v1/android/*）需在请求头携带 API Key：Authorization: Bearer <key>（兼容 X-API-Key: <key>）。Key 由管理员在 /admin 控制台创建、可吊销，服务端只存哈希。首页与监控面板（/、/dashboard）走飞书 OAuth 登录（单管理员），面向人不面向程序。/api/v1/monitor/snapshot 兼容会话或 API Key，供程序化监控。上游来源凭证与代理仍由服务端持有。总开关 AUTH_ENABLED 关闭时（内网）所有接口放行。",
+            "scheme": {"in": "header", "name": "Authorization", "format": "Bearer <key>", "alt_header": "X-API-Key"},
+            "public_endpoints": ["/health", "/discover", "/dashboard/echarts.min.js"],
+            "api_key_endpoints": ["/api/v1/android/apps/{packageName}", "/api/v1/android/apps/{packageName}/files", "/api/v1/android/apps/{packageName}/versions", "/api/v1/android/apps/{packageName}/download", "/api/v1/android/downloads/{jobId}", "/api/v1/android/downloads/{jobId}/file"],
+            "session_endpoints": ["/", "/dashboard", "/admin"],
+            "session_or_api_key_endpoints": ["/api/v1/monitor/snapshot"],
         },
         "concepts": {
             "description": "调用本系统前需要理解的核心概念。",
@@ -83,7 +87,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "get_info": {
                     "method": "GET",
                     "path": "/api/v1/android/apps/{packageName}",
-                    "auth": "public",
+                    "auth": "api_key",
                     "description": "查询应用元信息与（来源给出的）版本列表，不下载文件。用于确认包是否可获取、看最新版本号、看可选版本。",
                     "params": {
                         "path": {"packageName": "Android 包名"},
@@ -104,7 +108,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "list_files": {
                     "method": "GET",
                     "path": "/api/v1/android/apps/{packageName}/files",
-                    "auth": "public",
+                    "auth": "api_key",
                     "description": "获取下载计划：构成该版本的全部文件清单（base / split / obb 及各文件的大小与校验和）。用于在真正下载前了解产物结构、判断是单 APK 还是多文件 XAPK。",
                     "params": {
                         "path": {"packageName": "Android 包名"},
@@ -124,7 +128,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "list_versions": {
                     "method": "GET",
                     "path": "/api/v1/android/apps/{packageName}/versions",
-                    "auth": "public",
+                    "auth": "api_key",
                     "description": "列出版本目录中该包的可下载版本（downloadable，多源聚合去重后的结果）。首次访问会阻塞采集一次，之后读库返回。下载前若需让用户挑版本，先调它。",
                     "params": {
                         "path": {"packageName": "Android 包名"},
@@ -137,7 +141,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "download": {
                     "method": "GET",
                     "path": "/api/v1/android/apps/{packageName}/download",
-                    "auth": "public",
+                    "auth": "api_key",
                     "description": "下载安装包。命中 artifact 复用则直接返回文件流/302；未命中则返回 202 下载任务，避免 Web worker 被大包下载、解压、压缩、校验占住。",
                     "params": {
                         "path": {"packageName": "Android 包名"},
@@ -159,7 +163,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "download_status": {
                     "method": "GET",
                     "path": "/api/v1/android/downloads/{jobId}",
-                    "auth": "public",
+                    "auth": "api_key",
                     "description": "查询异步下载任务状态。status 为 queued/running/succeeded/failed；成功后 fileUrl 可下载产物。",
                     "response": {
                         "200": "{ jobId, status, packageName, versionCode, versionName, provider, statusUrl, fileUrl, artifactPath, error, providerErrors, createdAt, updatedAt, startedAt, finishedAt }",
@@ -169,7 +173,7 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "download_file": {
                     "method": "GET",
                     "path": "/api/v1/android/downloads/{jobId}/file",
-                    "auth": "public",
+                    "auth": "api_key",
                     "description": "获取已完成下载任务的文件。任务未成功完成时返回 409 NOT_READY。",
                     "response": {
                         "200": "二进制文件流或 302 NAS 直链",
@@ -195,19 +199,19 @@ async def discover(request: Request, settings: Settings = Depends(get_settings))
                 "home": {
                     "method": "GET",
                     "path": "/",
-                    "auth": "public",
+                    "auth": "session",
                     "description": "HTML 首页，展示面向 AI 的使用引导提示词",
                 },
                 "dashboard": {
                     "method": "GET",
                     "path": "/dashboard",
-                    "auth": "public",
+                    "auth": "session",
                     "description": "HTML 监控面板：实时任务状态（进行中/排队/失败/成功）、provider 流转、近 N 天耗时与成功率、收录规模。轮询 /api/v1/monitor/snapshot。",
                 },
                 "monitor_snapshot": {
                     "method": "GET",
                     "path": "/api/v1/monitor/snapshot",
-                    "auth": "public",
+                    "auth": "session_or_api_key",
                     "description": "监控面板的数据源：把任务状态、provider 流转、近 N 天分析、收录规模聚合成一份只读快照（JSON），可高频轮询。",
                     "params": {
                         "query": {

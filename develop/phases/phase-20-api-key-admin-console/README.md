@@ -71,5 +71,14 @@ app/main.py                      # include admin router（app.include_router(adm
 
 ## 当前状态
 
-- **未开始（计划，2026-07-01 制定）**。依赖：阶段 18（`app/auth/store.py` + `api_keys` 表 + `AUTH_API_KEY_ENABLED` 配置项）、阶段 19（`require_admin_session` 依赖与 OAuth 会话）。
-- 风险 / 注意点：本阶段要动 `app/api/routes.py` 的全部 6 个数据端点，改动面集中——务必确认现有测试默认在关闭态放行，避免大面积 401 误伤既有用例；`/discover` 的 `auth` 段是 Agent 读契约的入口，务必与实际挂载严格一致（描述与 §3.2 矩阵、endpoint `auth` 字段三处不能各说各话）；Key 明文一次性返回是硬约束，控制台页与建 Key 接口都不得二次回显或落库。
+- **已完成（实现，2026-07-01）**。依赖：阶段 18、19。
+- 落地：
+  - `app/auth/deps.py`：`require_api_key`（`Authorization: Bearer`，兼容 `X-API-Key`；`auth_enabled && auth_api_key_enabled` 才校验，否则放行）+ `require_session_or_api_key`（snapshot：会话或 Key）+ `_extract_api_key`/`_bearer`（`HTTPBearer(auto_error=False)`）。移除 phase 19 的 `require_admin_api`（被组合依赖取代）。
+  - `app/admin/routes.py` + `console.html`：`GET /admin`（列 Key）、`POST /admin/api-keys`（建 Key，返回一次性明文）、`POST /admin/api-keys/{id}/revoke`；全走 `require_admin_session`。
+  - `app/api/routes.py`：`router` 加 `dependencies=[Depends(require_api_key)]`，一处覆盖 6 个数据端点。
+  - `app/api/monitor.py`：snapshot 由会话门禁升级为 `require_session_or_api_key`（决策②）。
+  - `app/api/discover.py`：`auth` 段由 `type:none` 改写为 `api_key`（scheme + public/api_key/session/session_or_api_key 端点分组）；各 endpoint `auth` 字段同步。
+  - `app/main.py`：include `admin_router`。
+  - 测试 fixture `auth_client` 上移至根 `tests/conftest.py`（供 `tests/test_admin_console.py` 复用），删 `tests/auth/conftest.py`。
+- 测试：`tests/auth/test_api_key.py`（缺/错/有效 Bearer、X-API-Key、吊销、两个开关放行、snapshot 会话或 Key、discover 公开且报 api_key 9）+ `tests/test_admin_console.py`（未登录 302、建/列/用/吊销、缺 name 400、吊销未知 404 5）。全量 **253 passed**。
+- 注意：`/discover` 的 `auth` 段与实际挂载已对齐（描述 / §3.2 矩阵 / endpoint `auth` 字段一致）；`example_curl` 未加 Key 头（示例性，鉴权说明以 `auth` 段为准）；Key 明文仅建时返回一次、库只存 `sha256` 哈希 + 前缀。

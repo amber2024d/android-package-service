@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
 from app.api.errors import error_response
+from app.auth.deps import require_api_key
 from app.catalog.catalog import VersionCatalog
 from app.catalog.orchestrator import DownloadOrchestrator
 from app.catalog.runtime import build_catalog
@@ -21,7 +22,9 @@ from app.download.downloader import PackageDownloader
 from app.download.jobs import DownloadJob, DownloadJobStore
 from app.providers.factory import ProviderFactory
 
-router = APIRouter(prefix="/api/v1/android")
+# 数据 API 全部需 API Key（§3.2/§3.4）；router 级依赖统一覆盖 6 个端点。
+# auth_enabled / auth_api_key_enabled 关时 require_api_key 放行（内网/测试兼容）。
+router = APIRouter(prefix="/api/v1/android", dependencies=[Depends(require_api_key)])
 logger = logging.getLogger(__name__)
 
 # fire-and-forget 的后台收集任务：保持强引用防止被 GC，完成后回收并记录异常（§H ③ 触发即忘）。

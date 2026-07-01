@@ -21,8 +21,8 @@
 - [版本目录（Version Catalog）重构设计](android-package-service-version-catalog-design.md)——多源聚合的可下载版本目录、名↔号账本、下载编排、对外 `/versions`、定时刷新、主动归档、AppMagic known 层。各 §/阶段就地标注「落地」。
 - [APKMirror 源适配器设计](android-package-service-apkmirror-adapter-design.md)——深历史 downloadable 源（阶段 15）。
 
-云迁移改造（实施中，阶段 18–19 已落地，20–23 待实现）：
+云迁移改造（实施中，阶段 18–20 已落地，21–23 待实现）：
 
-- [云迁移改造设计（鉴权 + 对象存储 + 云部署）](android-package-service-cloud-migration-design.md)——迁到公网云 VM：数据 API 加 API Key、首页/监控面板加飞书 OAuth（单管理员）、NAS artifact 抽象为 GCS/S3 工厂 + signed URL 下发、去 NAS 的云上 Docker Compose 变体。阶段拆分与落地状态见 §2；鉴权已落地部分见 `app/auth/`（[PROJECT_MAP.md](../PROJECT_MAP.md)）。
+- [云迁移改造设计（鉴权 + 对象存储 + 云部署）](android-package-service-cloud-migration-design.md)——迁到公网云 VM：数据 API 加 API Key、首页/监控面板加飞书 OAuth（单管理员）、NAS artifact 抽象为 GCS/S3 工厂 + signed URL 下发、去 NAS 的云上 Docker Compose 变体。阶段拆分与落地状态见 §2；鉴权链（18–20）已落地，见 `app/auth/`、`app/admin/`（[PROJECT_MAP.md](../PROJECT_MAP.md)）。
 
 源码落地后的快速入口见根目录 [PROJECT_MAP.md](../PROJECT_MAP.md)。
