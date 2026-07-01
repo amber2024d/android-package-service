@@ -11,7 +11,7 @@
 - Git 提交规范：[develop/git-commit-guidelines.md](develop/git-commit-guidelines.md)
 - 版本目录重构设计（已落地，阶段 10–17）：[develop/android-package-service-version-catalog-design.md](develop/android-package-service-version-catalog-design.md)
 - APKMirror 源适配器设计（已落地，阶段 15）：[develop/android-package-service-apkmirror-adapter-design.md](develop/android-package-service-apkmirror-adapter-design.md)
-- 云迁移改造设计（设计中，阶段 18–23）：[develop/android-package-service-cloud-migration-design.md](develop/android-package-service-cloud-migration-design.md)
+- 云迁移改造设计（实施中，阶段 18–19 已落地、20–23 待实现）：[develop/android-package-service-cloud-migration-design.md](develop/android-package-service-cloud-migration-design.md)；鉴权源码入口 `app/auth/`（见 [PROJECT_MAP.md](PROJECT_MAP.md)）
 - 调研文档入口：`docs/*.md`（APKMirror 上游调研：[docs/apkmirror-download-research.md](docs/apkmirror-download-research.md)）
 - 项目地图：[PROJECT_MAP.md](PROJECT_MAP.md)
 
@@ -30,7 +30,8 @@
 - `docs/`：Google Play/gpapi、Aptoide、APKPure、APKMirror、现有项目下载链路调研。
 - `PROJECT_MAP.md`：源码入口、模块边界、运行配置和存储路径。
 - `app/`：FastAPI 服务源码；结构参考 [develop/android-package-service-design.md](develop/android-package-service-design.md) 的“项目结构”。
-- `app/api/monitor.py`：只读监控面板——`/dashboard` 单页 + `/api/v1/monitor/snapshot` 聚合数据源（任务状态、provider 流转、近 N 天耗时/成功率、收录规模）。
+- `app/api/monitor.py`：只读监控面板——`/dashboard` 单页 + `/api/v1/monitor/snapshot` 聚合数据源（任务状态、provider 流转、近 N 天耗时/成功率、收录规模）。首页/面板/snapshot 受 `app/auth` 会话门禁（阶段 19）。
+- `app/auth/`（阶段 18–20）：鉴权——`store.py`（`auth.sqlite` 四表）、`service.py`（API Key/会话/OAuth state/单管理员纯逻辑）、`feishu.py`（飞书 OAuth）、`deps.py`（会话/Key 依赖）、`routes.py`（`/auth/*`）。开关 `AUTH_ENABLED`（默认关，公网必开）。
 - `app/catalog/`：版本目录（阶段 10–17）——SQLite 库、名↔号账本、源采集器、`VersionCatalog` 枚举层、下载编排器、定时刷新调度器、主动归档、AppMagic known 层。详见 [PROJECT_MAP.md](PROJECT_MAP.md)。
 - `tests/`：阶段主路径测试；`tests/catalog/` 为版本目录测试。
 
