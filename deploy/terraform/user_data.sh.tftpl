@@ -1,0 +1,31 @@
+#!/bin/bash
+# 开机脚本（cloud-init）。假设基础 AMI = Amazon Linux 2023 x86_64。
+# 注：$${var} 形式为 Terraform 注入的变量；$(...) 为 shell 命令替换（Terraform 不解释、原样输出）。
+set -euxo pipefail
+
+# 全程日志落 /var/log/user-data.log 便于诊断（cloud-init 亦记 /var/log/cloud-init-output.log）。
+exec > >(tee -a /var/log/user-data.log) 2>&1
+echo "[user-data] start $(date -u +%FT%TZ)"
+
+# --- Docker + compose plugin ---
+dnf install -y docker git awscli
+systemctl enable --now docker
+install -d /usr/local/lib/docker/cli-plugins
+curl -fsSL "https://github.com/docker/compose/releases/download/v2.29.7/docker-compose-linux-$(uname -m)" \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+# --- 拉应用代码 ---
+install -d /opt/app
+git clone --branch "${app_repo_ref}" "${app_repo_url}" /opt/app
+cd /opt/app
+
+# --- 从 SSM 取 .env.cloud（SecureString 全文，凭据走实例 IAM 角色）---
+aws ssm get-parameter --region "${aws_region}" --name "${config_ssm_name}" \
+  --with-decryption --query 'Parameter.Value' --output text > /opt/app/.env.cloud
+chmod 600 /opt/app/.env.cloud
+
+# --- 起服务：litestream 先从 S3 恢复 SQLite，healthy 后放行三应用（compose depends_on）---
+docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d --build
+
+# 提示：整机被 Spot 回收后，ASG 会用本模板再造一台新机重跑此脚本，litestream 从 S3 恢复状态后继续。

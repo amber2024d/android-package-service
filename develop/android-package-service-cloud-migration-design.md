@@ -285,7 +285,7 @@ s3_secret_access_key: str | None = None
 
 方案：**Litestream 把两个库持续增量复制到 S3**（同桶 `litestream/` 前缀，与产物 `artifacts/` 分开），容器启动时先从 S3 恢复。保持 SQLite 不迁库（RDS/Dynamo 属非目标），被 terminate/换新机也能秒级恢复。
 
-- `docker-compose.cloud.yml` 加 `litestream` 边车：mount 共享 `app_data` 卷 + `deploy/litestream.yml`；entrypoint 先 `litestream restore -if-db-not-exists -if-replica-exists` 两个库，再 `litestream replicate`；healthcheck 探 restore 完成标记。
+- `docker-compose.cloud.yml` 加 `litestream` 边车：mount 共享 `app_data` 卷 + `deploy/litestream.yml.tmpl`（sed 展开桶/区域）；entrypoint 先 `litestream restore -if-db-not-exists -if-replica-exists` 两个库，再 `litestream replicate`；healthcheck 探 restore 完成标记。
 - 三应用服务 `depends_on: litestream (condition: service_healthy)`——**先恢复后放行**，避免抢在 restore 前建出空库覆盖 S3 备份。
 - 凭证走实例 IAM 角色（app boto3 与 litestream 同走 AWS 默认凭证链；容器需 IMDS hop-limit=2）。
 - WAL 仍在本地卷（Litestream 要求 WAL）；`app_data` 命名卷被 Spot 回收也没关系，靠 S3 恢复。

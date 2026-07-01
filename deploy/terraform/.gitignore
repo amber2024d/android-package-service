@@ -1,0 +1,11 @@
+# Terraform 本地产物 / 状态 / 真实变量（勿提交）
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+crash.log
+terraform.tfvars
+*.auto.tfvars
+override.tf
+override.tf.json

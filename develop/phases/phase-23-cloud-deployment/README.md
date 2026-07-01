@@ -92,7 +92,7 @@ scripts/smoke.sh                                 # 增带鉴权分支（可选�
 - **最终目标定为 AWS Spot 抢占式 + S3**（2026-07-01 确认），补做抢占式适配（见文末「Spot 适配」）。
 - 落地：
   - `docker-compose.cloud.yml`：叠加变体（`-f base -f cloud`）——三服务 `volumes` 覆盖为 `app_data:/app/data`、`app_tmp:/app/tmp`、tmpfs `/mnt/nas/apks`；`environment` 增补 `STORAGE_BACKEND`/桶凭证/`AUTH_*`/`FEISHU_*`/`PUBLIC_BASE_URL`/`DOWNLOAD_JOB_LEASE_SECONDS` 等（从 `.env.cloud` 注入）；顶层加 `app_data`/`app_tmp` 命名卷、`nas_apks` 降级 local（compose 合并时因无引用被剪除）。
-  - `litestream` 边车 + `deploy/litestream.yml`：把 `auth.sqlite` + `version-catalog.sqlite` 持续复制到 S3（`litestream/` 前缀），启动先 `restore` 再 `replicate`；三应用服务 `depends_on: litestream (service_healthy)` 先恢复后启动。
+  - `litestream` 边车 + `deploy/litestream.yml.tmpl`：把 `auth.sqlite` + `version-catalog.sqlite` 持续复制到 S3（`litestream/` 前缀），启动先 `restore` 再 `replicate`；三应用服务 `depends_on: litestream (service_healthy)` 先恢复后启动。
   - `.env.cloud.example`：生产 env 模板（`APP_ENV=production`、`PUBLIC_BASE_URL`、`AUTH_ENABLED=true`、`FEISHU_*`、`STORAGE_BACKEND=s3|gcs` + 桶/凭证、`SIGNED_URL_TTL_SECONDS`），无 NAS 段。
   - `Dockerfile`：`pip install '.[s3,gcs]'`（镜像装对象存储 SDK；local 后端懒加载不 import）。
   - `scripts/smoke.sh`：`API_KEY` 驱动的带鉴权 smoke（数据 API 带 Bearer；额外断言无 Key 401、`/dashboard` 未登录 302），未设时行为与内网一致。

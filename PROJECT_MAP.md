@@ -63,7 +63,7 @@
 
 - 正式 Docker（内网 NAS）：`docker-compose.yml`，使用 NAS/CIFS volume。
 - 本地测试 Docker：`docker-compose.dev.yml`，覆盖为 `./data`、`./tmp`、`./artifacts`。
-- 云上 Docker（AWS Spot + S3，阶段 23）：`docker-compose.cloud.yml`（叠加 `-f base -f cloud`）——去 NAS/CIFS、`./data`/`./tmp` 改命名卷、`/mnt/nas/apks` 改 tmpfs、产物走 S3、开鉴权；抢占式适配：`litestream` 边车（`deploy/litestream.yml`）把 `auth.sqlite`+`version-catalog.sqlite` 复制到 S3、开机 restore、`service_healthy` 门禁后放行应用；`DOWNLOAD_JOB_LEASE_SECONDS=600`、`stop_grace_period`、S3 走实例 IAM 角色（IMDS hop-limit=2）。env 模板 `.env.cloud.example`；整机回收自动重来靠 ASG+user-data（部署文档）。启动：`docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d`。
+- 云上 Docker（AWS Spot + S3，阶段 23）：`docker-compose.cloud.yml`（叠加 `-f base -f cloud`）——去 NAS/CIFS、`./data`/`./tmp` 改命名卷、`/mnt/nas/apks` 改 tmpfs、产物走 S3、开鉴权；抢占式适配：`litestream` 边车（`deploy/litestream.yml.tmpl`）把 `auth.sqlite`+`version-catalog.sqlite` 复制到 S3、开机 restore、`service_healthy` 门禁后放行应用；`DOWNLOAD_JOB_LEASE_SECONDS=600`、`stop_grace_period`、S3 走实例 IAM 角色（IMDS hop-limit=2）。env 模板 `.env.cloud.example`；整机回收自动重来靠 ASG+user-data（部署文档）。启动：`docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env.cloud up -d`。
 - Docker 构建忽略：`.dockerignore`，只把镜像构建需要的源码和项目元数据放进 context。
 - 一键本地测试 Docker：`scripts/dev-compose-up.sh`。
 - 部署 smoke：`scripts/smoke.sh`。

@@ -1,18 +1,19 @@
-# Litestream：把本地 SQLite 持续增量复制到 S3，容器启动时从 S3 恢复。
+# Litestream 配置模板：把本地 SQLite 持续增量复制到 S3，容器启动时从 S3 恢复。
 # 用途：AWS Spot 被回收后，新实例本地盘为空，litestream 先从 S3 恢复两个库再放行应用启动，
 #       实现 API Key/管理员（auth.sqlite）与名↔号账本/版本目录（version-catalog.sqlite）跨回收不丢。
-# 同一个 S3 桶，litestream/ 前缀（与产物的 artifacts/ 前缀分开）。
-# 凭证：默认走实例 IAM 角色（AWS 默认凭证链，无需在此配 key）；${S3_BUCKET}/${S3_REGION} 由环境注入。
+# 同一个 S3 桶，litestream/ 前缀（与产物的 artifacts/ 前缀分开）。凭证走实例 IAM 角色（AWS 默认凭证链）。
+# __S3_BUCKET__ / __S3_REGION__ 为占位符——docker-compose.cloud.yml 的 litestream 服务启动时用环境变量经
+# sed 展开为 /etc/litestream.yml（不依赖 litestream 自身 env 展开行为，稳妥）。
 dbs:
   - path: /app/data/auth.sqlite
     replicas:
       - type: s3
-        bucket: ${S3_BUCKET}
+        bucket: __S3_BUCKET__
         path: litestream/auth.sqlite
-        region: ${S3_REGION}
+        region: __S3_REGION__
   - path: /app/data/version-catalog.sqlite
     replicas:
       - type: s3
-        bucket: ${S3_BUCKET}
+        bucket: __S3_BUCKET__
         path: litestream/version-catalog.sqlite
-        region: ${S3_REGION}
+        region: __S3_REGION__

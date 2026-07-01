@@ -61,12 +61,17 @@ services:
       # LITESTREAM_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
     volumes:
       - app_data:/app/data
-      - ./deploy/litestream.yml:/etc/litestream.yml:ro
+      - ./deploy/litestream.yml.tmpl:/etc/litestream.yml.tmpl:ro
     entrypoint:
       - /bin/sh
       - -c
+    # 先用环境变量把模板占位符 sed 展开为 /etc/litestream.yml（容器 shell 保证展开，不依赖 litestream 的 env 行为）；
+    # 再 restore（缺库或无 S3 副本时静默跳过，首次部署即空库、由应用新建）；成功后 touch ready 放行应用；最后 replicate。
+    # restore 若因配置/权限错误失败会中断 && 链、不置 ready → healthcheck 不健康 → 应用 depends_on 不启动（失败可见，不会静默起空库）。
     command:
       - >
+        sed -e "s#__S3_BUCKET__#$${S3_BUCKET}#g" -e "s#__S3_REGION__#$${S3_REGION}#g"
+        /etc/litestream.yml.tmpl > /etc/litestream.yml &&
         litestream restore -if-db-not-exists -if-replica-exists /app/data/auth.sqlite &&
         litestream restore -if-db-not-exists -if-replica-exists /app/data/version-catalog.sqlite &&
         touch /tmp/ready &&

@@ -404,7 +404,7 @@ docker compose -f docker-compose.yml -f docker-compose.cloud.yml --env-file .env
 **抢占式（Spot）能不丢东西的关键**：计算与本地盘都是临时的，一切持久状态都落 S3。
 
 - **产物**：`STORAGE_BACKEND=s3` + `S3_BUCKET`/`S3_REGION`。产物在 `/app/tmp` 暂存打包后上传 S3，下载下发返回**短期 signed URL 的 302**（大流量卸到 S3，机器被抢不丢件）。镜像已装 `s3`/`gcs` extras。
-- **SQLite → Litestream → S3**：`auth.sqlite`（**API Key/管理员，不可丢**）+ `version-catalog.sqlite`（名↔号账本/目录/download_jobs）由 `litestream` 边车持续增量复制到 S3（同桶 `litestream/` 前缀，与产物 `artifacts/` 分开）。容器启动时 litestream **先从 S3 恢复**再 healthy，三应用服务 `depends_on: service_healthy` 后才启动（避免抢在 restore 前建空库）。被 terminate/换新机也能秒级恢复到最近状态。配置见 `deploy/litestream.yml`。
+- **SQLite → Litestream → S3**：`auth.sqlite`（**API Key/管理员，不可丢**）+ `version-catalog.sqlite`（名↔号账本/目录/download_jobs）由 `litestream` 边车持续增量复制到 S3（同桶 `litestream/` 前缀，与产物 `artifacts/` 分开）。容器启动时 litestream **先从 S3 恢复**再 healthy，三应用服务 `depends_on: service_healthy` 后才启动（避免抢在 restore 前建空库）。被 terminate/换新机也能秒级恢复到最近状态。配置模板见 `deploy/litestream.yml.tmpl`（占位符由 litestream 服务 sed 展开）。
 - **下载中断**：Spot 被抢时 running 的 job 由 worker 租约重抢重下；`DOWNLOAD_JOB_LEASE_SECONDS` 云上默认调小到 `600`，卡住的 job ~10min 内被新机接手。`.part` 暂存在 tmpfs，丢了重下。
 - **优雅停机**：三服务 + litestream 设 `stop_grace_period`，Spot 的 ~2min 中断预警内让 worker 释放租约、litestream 把最后 WAL 刷到 S3。
 - **IAM 角色 + IMDS**：推荐给 Spot 实例挂**有 S3 读写权限的 IAM 角色**，`S3_ACCESS_KEY_ID/SECRET` 留空即走实例角色（app 的 boto3 与 litestream 都走 AWS 默认凭证链）。容器要能访问 IMDS 取角色凭证——启动实例时须把 **metadata hop-limit 设为 2**（`aws ec2 modify-instance-metadata-options --http-put-response-hop-limit 2`，或 launch template 里配），否则容器（多一跳）拿不到角色凭证。

@@ -1,0 +1,32 @@
+# 复制为 terraform.tfvars 后填写。带 <PLACEHOLDER> 的必须改为你的真实值。
+
+aws_region  = "us-west-2"
+name_prefix = "android-package-service"
+
+# ---- 网络（填你 VPC 里的现成资源）----
+vpc_id              = "vpc-xxxxxxxx"                     # <PLACEHOLDER>
+public_subnet_ids   = ["subnet-aaaa", "subnet-bbbb"]    # <PLACEHOLDER> ALB 用，公网、跨 ≥2 AZ
+instance_subnet_ids = ["subnet-cccc", "subnet-dddd"]    # <PLACEHOLDER> 实例用，可私网、跨 ≥2 AZ
+ingress_cidrs       = ["0.0.0.0/0"]                     # 谁能访问 443；建议收窄到已知出口
+
+# ---- 实例 ----
+ami_id         = "ami-xxxxxxxx"                          # <PLACEHOLDER> Amazon Linux 2023 x86_64（或自烘 AMI）
+instance_types = ["m6i.large", "m5.large", "m5a.large"] # Spot 多机型分散被抢概率
+key_name       = null                                   # SSH key（可选）；用 SSM Session Manager 可不配
+
+# ---- Spot 混合（0 base + 0% = 全 Spot；要 On-Demand 保底就调大）----
+on_demand_base       = 0
+on_demand_percentage = 0
+
+# ---- S3（产物 + litestream 备份，须已存在）----
+artifacts_bucket = "android-packages-prod"              # <PLACEHOLDER>
+
+# ---- HTTPS ----
+acm_certificate_arn = "arn:aws:acm:us-west-2:111122223333:certificate/xxxx" # <PLACEHOLDER>
+
+# ---- 应用代码来源（user-data git clone）----
+app_repo_url = "https://github.com/you/android-package-service.git"          # <PLACEHOLDER>
+app_repo_ref = "main"
+
+# ---- .env.cloud 全文所存的 SSM 参数前缀（实际参数 <prefix>/env）----
+config_ssm_prefix = "/android-package-service"
