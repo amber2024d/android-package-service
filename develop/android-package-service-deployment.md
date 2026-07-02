@@ -70,6 +70,7 @@ services:
       HTTPS_PROXY: ${HTTPS_PROXY:-}
       ALL_PROXY: ${ALL_PROXY:-}
       UPSTREAM_PROXY: ${UPSTREAM_PROXY:-}
+      GOOGLE_PLAY_DOWNLOAD_PROXY: ${GOOGLE_PLAY_DOWNLOAD_PROXY:-}
       NAS_PUBLIC_BASE_URL: ${NAS_PUBLIC_BASE_URL:-}
       PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION: python
     volumes: &app_volumes
@@ -220,6 +221,8 @@ HTTPS_PROXY=
 ALL_PROXY=
 # APKPure 系 provider 专用上游代理（HTTP/HTTPS，含鉴权；SOCKS5 不支持）。
 UPSTREAM_PROXY=
+# 仅 google-play 的 CDN 下载出口，独立于 UPSTREAM_PROXY，留空=直连。
+GOOGLE_PLAY_DOWNLOAD_PROXY=
 
 NAS_HOST=192.168.1.10
 NAS_PORT=445
@@ -258,9 +261,12 @@ APKPure 的 CDN（`d.apkpure.com`）/ Aurora dispenser（`auroraoss.com`）被 C
 UPSTREAM_PROXY=http://USER:PASS@HOST:PORT
 ```
 
-配置后这些 provider 的全部上游流量（取 token、签名/Play API、网页抓取、CDN 下载）统一走该代理
-（出口 IP 一致，预签名/带 cookie 的下载链接绑 IP），走代理的下载会跳过本地 IP 的 SSRF 校验。详见
-[providers 文档的 UPSTREAM_PROXY 段落](android-package-service-providers.md)。
+配置后这些 provider 的上游流量（取 token、签名/Play API、网页抓取、CDN 下载）统一走该代理
+（出口 IP 一致，预签名/带 cookie 的下载链接绑 IP），走代理的下载会跳过本地 IP 的 SSRF 校验。
+
+例外：`google-play` 的 **CDN 字节下载**不随 `UPSTREAM_PROXY`，改由 `GOOGLE_PLAY_DOWNLOAD_PROXY`
+单独控制、默认直连——认证走 `UPSTREAM_PROXY` 绕 Cloudflare，大包下载直连吃满机房带宽。详见
+[providers 文档的 UPSTREAM_PROXY / GOOGLE_PLAY_DOWNLOAD_PROXY 段落](android-package-service-providers.md)。
 
 Linux 服务器上如果代理在宿主机，可改成宿主机网关 IP。
 

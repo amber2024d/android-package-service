@@ -49,6 +49,7 @@ class ProviderFactory:
                     timeout_seconds=settings.http_timeout_seconds,
                     cache_dir=settings.cache_dir,
                     proxy=settings.upstream_proxy,
+                    download_proxy=settings.google_play_download_proxy,
                 )
             )
         if settings.provider_apkpure_proto_enabled:

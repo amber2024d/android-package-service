@@ -138,10 +138,15 @@ Token 缓存：
 - token 失效时重新向 dispenser 请求
 
 代理：本机出口被 Cloudflare 拦时，Aurora dispenser（`auroraoss.com/api/auth`）会返回 403
-「Just a moment」挑战页，导致取 token 失败。配置 `UPSTREAM_PROXY` 后整条链路（取 token、
-gpapi 的 `checkin`/`details`/`delivery` 经 `proxies_config`、以及 CDN 下载）统一走代理即可恢复。
+「Just a moment」挑战页，导致取 token 失败。配置 `UPSTREAM_PROXY` 后**认证/API 链路**（取 token、
+gpapi 的 `checkin`/`details`/`delivery` 经 `proxies_config`）走代理即可恢复。
 实测 `com.oakever.meowdoku` 经代理可完整下到 base+split 并打成 XAPK。详见
 [UPSTREAM_PROXY 段落](#upstream_proxyapkpure--google-play-上游代理)。
+
+CDN 字节下载出口单独由 `GOOGLE_PLAY_DOWNLOAD_PROXY` 控制，默认留空=直连（与 `UPSTREAM_PROXY` 独立）。
+Google CDN 下载按 `downloadAuthCookie` 授权、不认出口 IP，无需与认证同 IP：认证走小带宽干净代理绕
+Cloudflare，下载直连吃满带宽，避免大包被认证代理拖慢；需要时该项也可指向另一个大带宽代理。
+注意 APKPure 系不同——其 CDN 下载必须与解析同出口（否则 198.18/15 假 IP/SSRF），仍统一走 `UPSTREAM_PROXY`。
 
 风险：
 
@@ -424,6 +429,8 @@ HTTPS_PROXY=
 ALL_PROXY=
 # APKPure 系 provider 专用上游代理（HTTP/HTTPS，含鉴权；SOCKS5 不支持）。
 UPSTREAM_PROXY=
+# 仅 google-play 的 CDN 下载出口，独立于 UPSTREAM_PROXY，留空=直连。
+GOOGLE_PLAY_DOWNLOAD_PROXY=
 ```
 
 ### UPSTREAM_PROXY（APKPure / Google Play 上游代理）
@@ -432,7 +439,8 @@ UPSTREAM_PROXY=
   无法使用带鉴权的 SOCKS5；且实测目标 CDN 会因 IP/客户端指纹返回 403）。
 - 留空则直连。配置后这些 provider 的**整条链路统一走该代理**：
   - `apkpure-signed` / `apkpure-web`：签名 API、网页抓取（Playwright Chromium）、CDN 下载（httpx/wget）。
-  - `google-play`：Aurora 取 token、gpapi 的 `checkin`/`details`/`delivery`（`proxies_config`）、CDN 下载。
+  - `google-play`：Aurora 取 token、gpapi 的 `checkin`/`details`/`delivery`（`proxies_config`）。
+    **CDN 字节下载不在此列**——单独由 `GOOGLE_PLAY_DOWNLOAD_PROXY` 控制，默认直连（见下）。
 - 统一出口 IP 的两个作用：① 绕过 Cloudflare（Aurora dispenser `auroraoss.com`、APKPure CDN 都会拦本机出口）；
   ② 预签名链接（`d.apkpure.com/custom/...`）和 Play 的带 cookie 下载链接都**绑定生成它的会话/IP**，
   取链接与下文件必须同一出口 IP。
@@ -443,3 +451,12 @@ UPSTREAM_PROXY=
   个别出口节点对某些主机的 CONNECT 会偶发返回 403，导致多跳链路（尤其 google-play 的 token→checkin→
   details→delivery）偶发失败，**重试通常即可成功**（token 命中缓存后少一跳更稳）。仅在被 Cloudflare 拦或
   本机出口受限时开启。
+
+### GOOGLE_PLAY_DOWNLOAD_PROXY（google-play CDN 下载出口）
+
+- 仅作用于 `google-play` 的 CDN 字节下载（base/split/OBB），与 `UPSTREAM_PROXY`（认证/API）相互独立。
+- 留空（默认）=**直连**。Google CDN 下载按 `downloadAuthCookie` 授权、**不认出口 IP**，无需与认证同 IP：
+  让认证走 `UPSTREAM_PROXY`（小带宽干净代理绕 Cloudflare），下载直连吃满机房带宽，避免大包（可达数百 MB）
+  被认证代理的小带宽出口拖慢。需要时该项也可指向另一个大带宽代理。
+- 与 APKPure 的差异：APKPure 系 CDN 下载必须与解析它的会话同出口（否则命中 `198.18.0.0/15` 假 IP 被判私有
+  地址 / SSRF 拦截），故 APKPure **没有**这种拆分，仍整条走 `UPSTREAM_PROXY`。

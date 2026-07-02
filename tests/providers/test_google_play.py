@@ -223,6 +223,71 @@ def test_factory_auto_order_prefers_google_play(tmp_path):
     ]
 
 
+def test_download_files_use_download_proxy_not_auth_proxy(tmp_path):
+    # 认证走 upstream 代理，CDN 下载默认直连（download_proxy=None）：下载文件不挂认证代理。
+    provider = GooglePlayProvider(
+        cache_dir=tmp_path / "cache",
+        proxy="http://auth:pass@proxy:3128",
+        download_proxy=None,
+    )
+    provider._api = _api_factory(_details(), {"file": {"url": "https://play.example/base.apk"}})
+
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid")))
+
+    assert provider.proxy == "http://auth:pass@proxy:3128"
+    assert plan.files[0].proxy is None
+
+
+def test_download_files_use_dedicated_download_proxy_when_set(tmp_path):
+    # 需要时下载可走另一个（大带宽）代理，与认证代理相互独立。
+    provider = GooglePlayProvider(
+        cache_dir=tmp_path / "cache",
+        proxy="http://auth:pass@proxy:3128",
+        download_proxy="http://dl:pass@bigpipe:3128",
+    )
+    provider._api = _api_factory(_details(), {"file": {"url": "https://play.example/base.apk"}})
+
+    plan = _run(provider.get_download_plan(AndroidPackageRequest(package_name="org.fdroid.fdroid")))
+
+    assert plan.files[0].proxy == "http://dl:pass@bigpipe:3128"
+
+
+def test_factory_wires_google_play_proxies_independently(tmp_path):
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        temp_dir=tmp_path / "tmp",
+        nas_mount_path=tmp_path / "nas",
+        provider_fake_enabled=False,
+        provider_fake_failing_enabled=False,
+        provider_google_play_enabled=True,
+        upstream_proxy="http://auth:pass@proxy:3128",
+        google_play_download_proxy="http://dl:pass@bigpipe:3128",
+    )
+
+    provider = ProviderFactory(settings).providers["google-play"]
+
+    assert provider.proxy == "http://auth:pass@proxy:3128"
+    assert provider.download_proxy == "http://dl:pass@bigpipe:3128"
+
+
+def test_factory_google_play_download_proxy_blank_is_direct(tmp_path):
+    # compose 的 ${GOOGLE_PLAY_DOWNLOAD_PROXY:-} 未配时传空串，须归一为 None（直连）。
+    settings = Settings(
+        data_dir=tmp_path / "data",
+        temp_dir=tmp_path / "tmp",
+        nas_mount_path=tmp_path / "nas",
+        provider_fake_enabled=False,
+        provider_fake_failing_enabled=False,
+        provider_google_play_enabled=True,
+        upstream_proxy="http://auth:pass@proxy:3128",
+        google_play_download_proxy="",
+    )
+
+    provider = ProviderFactory(settings).providers["google-play"]
+
+    assert provider.download_proxy is None
+
+
 def _provider(tmp_path, download, details=None):
     provider = GooglePlayProvider(cache_dir=tmp_path / "cache")
     provider._api = _api_factory(_details() if details is None else details, download)

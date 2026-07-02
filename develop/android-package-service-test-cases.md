@@ -242,6 +242,14 @@
   wget 兜底带 `http_proxy`/`https_proxy` 环境变量
 - 备注：`PackageFile.proxy` 为 `exclude=True`，不出现在 `/files` 等 API 响应
 
+### T219 google-play 下载代理独立（GOOGLE_PLAY_DOWNLOAD_PROXY）
+
+- 预期：认证/API（Aurora 取 token、gpapi）走 `settings.upstream_proxy`；CDN 下载文件的
+  `PackageFile.proxy` 取 `settings.google_play_download_proxy`，二者相互独立
+- 预期：`google_play_download_proxy` 留空/空串 → 归一为 `None` → 下载文件直连（不挂认证代理）
+- 预期：`factory` 把 `settings.google_play_download_proxy` 透传到 `google-play`
+- 备注：仅 `google-play` 拆分；APKPure 系下载仍随 `UPSTREAM_PROXY`（须与解析同出口）
+
 ## API 与部署 smoke
 
 ### S001 Docker 启动

@@ -71,6 +71,8 @@
 - `UPSTREAM_PROXY`：apkpure 系 / google-play / apkmirror 的上游代理（HTTP/HTTPS，含鉴权，不支持 SOCKS5）；
   Cloudflare 拦 CDN/Aurora、本机出口受限、或开发机 Clash fake-IP 误伤 SSRF 校验时配置（空串=直连，Settings 已归一为
   `None`），详见 `develop/android-package-service-providers.md`。
+- `GOOGLE_PLAY_DOWNLOAD_PROXY`：仅 `google-play` 的 CDN 字节下载出口，独立于 `UPSTREAM_PROXY`，默认直连。
+  Google CDN 按 `downloadAuthCookie` 授权、不认 IP：认证走 `UPSTREAM_PROXY` 绕 CF，下载直连吃满带宽（APKPure 不适用）。
 
 ## 存储
 

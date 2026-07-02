@@ -85,15 +85,20 @@ class GooglePlayProvider(AndroidPackageProvider):
         cache_dir: Path = Path("data/cache"),
         dispenser_url: str = DISPENSER_URL,
         proxy: str | None = None,
+        download_proxy: str | None = None,
     ):
         self.priority = priority
         self.enabled = enabled
         self.timeout_seconds = timeout_seconds
         self.cache_dir = cache_dir
         self.dispenser_url = dispenser_url
-        # 配置后整条 Google Play 链路（Aurora 取 token、gpapi 的 checkin/details/delivery、
-        # 以及 CDN 文件下载）统一走该代理。Aurora dispenser 被 Cloudflare 拦 403 时尤其需要。
+        # proxy：认证与 API 链路（Aurora 取 token、gpapi 的 checkin/details/delivery）走它。
+        # Aurora dispenser 被 Cloudflare 拦 403（机房 IP）时尤其需要一个干净出口 IP。
         self.proxy = proxy
+        # download_proxy：CDN 字节下载单独控制，默认 None=直连。Google CDN 下载按 downloadAuthCookie
+        # 授权（不认 IP），无需与认证同 IP，直连即可吃满带宽；避免大包被小带宽认证代理拖慢。
+        # 需要时可指向另一个大带宽代理。（APKPure 系不同：下载必须与解析同出口，另见其 provider。）
+        self.download_proxy = download_proxy
 
     def _proxies_config(self) -> dict[str, str] | None:
         return {"http": self.proxy, "https": self.proxy} if self.proxy else None
@@ -373,7 +378,7 @@ class GooglePlayProvider(AndroidPackageProvider):
             source_url=url if source_type == "url" else None,
             source_path=source_path,
             headers=headers,
-            proxy=None if source_type == "local" else self.proxy,
+            proxy=None if source_type == "local" else self.download_proxy,
             size=self._int(raw.get("total_size") or raw.get("size")),
             sha1=self._hash(raw.get("sha1"), 20),
             sha256=self._hash(raw.get("sha256"), 32),

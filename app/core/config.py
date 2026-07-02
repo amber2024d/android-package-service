@@ -79,6 +79,12 @@ class Settings(BaseSettings):
     # 又保证预签名/带 cookie 的下载链接与生成它的会话同 IP。
     upstream_proxy: str | None = None
 
+    # 仅 google-play 的 CDN 字节下载出口，独立于 upstream_proxy。默认留空=直连。
+    # Google CDN 下载按 downloadAuthCookie 授权（不认 IP），无需与认证同 IP：让认证走
+    # upstream_proxy（小带宽干净代理绕 CF），下载直连吃满带宽，避免大包被认证代理拖慢。
+    # 需要时可指向另一个大带宽代理。注意：APKPure 系下载必须与解析同出口，不适用本项。
+    google_play_download_proxy: str | None = None
+
     # 鉴权（阶段 18–20，公网必开；本地测试默认关以兼容现有用例）。
     # auth_enabled：总门禁开关，关时页面/数据 API 依赖全部放行（现有测试不受影响）。
     # auth_api_key_enabled：数据 API 是否校验 API Key（独立于 auth_enabled，供内网联调单独回退）。
@@ -118,6 +124,7 @@ class Settings(BaseSettings):
 
     @field_validator(
         "upstream_proxy",
+        "google_play_download_proxy",
         "nas_public_base_url",
         "feishu_app_id",
         "feishu_app_secret",
