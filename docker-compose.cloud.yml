@@ -89,6 +89,9 @@ services:
     volumes: *cloud_volumes
     depends_on: *litestream_gate
     stop_grace_period: 45s
+    # 云上把 web 发布到宿主机 8080，对齐 ALB 目标组/健康检查（base 的 11010 也仍在，但实例安全组只放 8080）。
+    ports:
+      - "8080:8080"
     # STORAGE_BACKEND=gcs 时把 SA key 文件挂进 web + worker（GCS_CREDENTIALS_JSON 指向它）；S3 用实例角色无需挂载。
 
   android-package-download-worker:
