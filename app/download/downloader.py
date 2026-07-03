@@ -121,7 +121,10 @@ class PackageDownloader:
             if not provider.startswith("fake") and package_file.metadata.get("local.provider") != provider:
                 self._fail(provider, "Local file source is not trusted.")
             source = Path(package_file.source_path or urlparse(package_file.url or "").path)
-            shutil.copy2(source, part)
+            if package_file.metadata.get("local.cleanup") == "true":
+                shutil.move(source, part)
+            else:
+                shutil.copy2(source, part)
             return
         if package_file.source_type != "url" or not (package_file.source_url or package_file.url):
             self._fail(provider, f"Unsupported file source: {package_file.source_type}")

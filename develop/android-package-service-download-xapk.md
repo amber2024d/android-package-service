@@ -76,7 +76,7 @@ User-Agent: AndroidPackageService/{version}
 ```
 
 Google Play 这类短期下载凭证使用 `PackageFile.source_url` 和 `PackageFile.headers` 传给下载层，
-字段不序列化到 `/files` 或 artifact metadata；`gpapi` 流式 `data` 先落到 provider cache，
+字段不序列化到 `/files` 或 artifact metadata；`gpapi` 流式 `data` 先落到 provider cache，下载层 move 到 `.part` 后清掉源文件，
 再通过内部 `source_path` 交给同一下载、校验、打包流程。
 
 可选支持：

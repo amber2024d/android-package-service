@@ -366,6 +366,7 @@ class GooglePlayProvider(AndroidPackageProvider):
             source_path = self._write_data_file(name, raw["data"])
             url = f"local://{name}"
             metadata["local.provider"] = self.id
+            metadata["local.cleanup"] = "true"
         else:
             source_path = None
         if not url:

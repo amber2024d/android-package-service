@@ -249,6 +249,31 @@ def test_validate_url_skips_ip_check_when_via_proxy(tmp_path):
         pass
 
 
+def test_temporary_local_source_is_moved_into_part(tmp_path):
+    downloader = _downloader(tmp_path)
+    source = tmp_path / "data" / "cache" / "google-play-data" / "base.apk"
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b"PK\x03\x04apk")
+    part = tmp_path / "tmp" / "base.apk.part"
+    package_file = PackageFile(
+        type=PackageFileType.BASE_APK,
+        name="base.apk",
+        source_type="local",
+        source_path=str(source),
+        metadata={"local.provider": "google-play", "local.cleanup": "true"},
+    )
+
+    try:
+        import asyncio
+
+        asyncio.run(downloader._fetch_one(package_file, part, "google-play"))
+    finally:
+        get_settings.cache_clear()
+
+    assert part.read_bytes() == b"PK\x03\x04apk"
+    assert not source.exists()
+
+
 def test_wget_passes_proxy_env(tmp_path, monkeypatch):
     downloader = _downloader(tmp_path)
     part = tmp_path / "download.apk.part"
